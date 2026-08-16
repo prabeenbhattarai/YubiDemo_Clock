@@ -6,9 +6,9 @@ import {
   cert,
   type App,
 } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
-import { getStorage } from "firebase-admin/storage";
+import { getAuth, type Auth } from "firebase-admin/auth";
+import { getFirestore, type Firestore } from "firebase-admin/firestore";
+import { getStorage, type Storage } from "firebase-admin/storage";
 
 const USE_EMULATOR = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true";
 const PROJECT_ID =
@@ -63,17 +63,52 @@ function createApp(): App {
   });
 }
 
-const adminApp = createApp();
+// ---------------------------------------------------------------------------
+// LAZY initialization. Firebase Admin is created on first *use*, not at import.
+// This keeps the Next.js build (which imports route modules to collect page
+// data) from ever needing runtime credentials. Missing/invalid credentials
+// therefore surface at request time as a clean JSON error, not a build crash.
+// ---------------------------------------------------------------------------
+let _app: App | null = null;
+let _auth: Auth | null = null;
+let _db: Firestore | null = null;
+let _storage: Storage | null = null;
 
-export const adminAuth = getAuth(adminApp);
-export const adminDb = getFirestore(adminApp);
-
-// Strip `undefined` values instead of throwing (e.g. optional history notes).
-// settings() must run once before any Firestore use; guard against re-init.
-try {
-  adminDb.settings({ ignoreUndefinedProperties: true });
-} catch {
-  /* already configured */
+function app(): App {
+  return (_app ??= createApp());
+}
+function authInstance(): Auth {
+  return (_auth ??= getAuth(app()));
+}
+function dbInstance(): Firestore {
+  if (!_db) {
+    _db = getFirestore(app());
+    // Strip `undefined` values instead of throwing (e.g. optional history notes).
+    try {
+      _db.settings({ ignoreUndefinedProperties: true });
+    } catch {
+      /* already configured */
+    }
+  }
+  return _db;
+}
+function storageInstance(): Storage {
+  return (_storage ??= getStorage(app()));
 }
 
-export const adminStorage = getStorage(adminApp);
+/** Proxy that defers initialization until a property is actually accessed. */
+function lazy<T extends object>(getTarget: () => T): T {
+  return new Proxy({} as T, {
+    get(_t, prop) {
+      const target = getTarget() as Record<PropertyKey, unknown>;
+      const value = target[prop];
+      return typeof value === "function"
+        ? (value as (...args: unknown[]) => unknown).bind(target)
+        : value;
+    },
+  });
+}
+
+export const adminAuth: Auth = lazy(authInstance);
+export const adminDb: Firestore = lazy(dbInstance);
+export const adminStorage: Storage = lazy(storageInstance);

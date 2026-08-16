@@ -28,7 +28,8 @@ export default function CameraCapture({
     (async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment", width: { ideal: 1280 } },
+          // Front-facing (selfie) camera for clock-in/out identity photos.
+          video: { facingMode: "user", width: { ideal: 1280 } },
           audio: false,
         });
         if (cancelled) {
@@ -67,6 +68,9 @@ export default function CameraCapture({
     canvas.height = (video.videoHeight || 720) * scale;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    // Mirror horizontally so the saved selfie matches the mirrored preview.
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
     stopStream();
@@ -98,7 +102,7 @@ export default function CameraCapture({
           ref={videoRef}
           playsInline
           muted
-          className="w-full h-full object-cover"
+          className="w-full h-full object-cover -scale-x-100"
         />
         {starting && (
           <div className="absolute inset-0 grid place-items-center text-white">

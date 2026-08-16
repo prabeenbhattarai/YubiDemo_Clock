@@ -39,6 +39,12 @@ service cloud.firestore {
       allow write: if false; // server only
     }
 
+    // Admin notifications: admins read; writes are server-only.
+    match /notifications/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     // OTP codes: never readable/writable by clients.
     match /otps/{email} {
       allow read, write: if false;

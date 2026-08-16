@@ -158,6 +158,22 @@ export interface Timesheet {
   updatedAt?: number;
 }
 
+export type NotificationType =
+  | "clock_in"
+  | "clock_out"
+  | "out_of_range"
+  | "timesheet";
+
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  message: string;
+  workerName?: string;
+  siteName?: string;
+  at: number;
+  read: boolean;
+}
+
 export interface OtpDoc {
   emailHash: string;
   codeHash: string;

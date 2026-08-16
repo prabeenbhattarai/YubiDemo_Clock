@@ -10,6 +10,7 @@ export const COL = {
   shifts: "shifts",
   timesheets: "timesheets",
   otps: "otps",
+  notifications: "notifications",
 } as const;
 
 export function now() {

@@ -7,6 +7,7 @@ import {
   query,
   where,
   orderBy,
+  limit,
   type QueryConstraint,
   type Firestore,
 } from "firebase/firestore";
@@ -88,4 +89,4 @@ export function useCurrentUid(): string | null {
   return uid;
 }
 
-export { where, orderBy };
+export { where, orderBy, limit };

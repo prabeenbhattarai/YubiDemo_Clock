@@ -6,6 +6,7 @@ import {
   listWorkerTimesheets,
   type TimesheetInput,
 } from "@/lib/timesheet-repo";
+import { createNotification } from "@/lib/notify";
 
 const ALLOWED_BREAKS = [0, 20, 30, 45, 60];
 
@@ -36,5 +37,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid break selection." }, { status: 400 });
 
   const id = await createTimesheet(worker, body);
+  await createNotification({
+    type: "timesheet",
+    message: `${worker.name} submitted a timesheet for ${body.siteLabel}`,
+    workerName: worker.name,
+    siteName: body.siteLabel,
+  });
   return NextResponse.json({ ok: true, id });
 }

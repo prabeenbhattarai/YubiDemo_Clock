@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/session";
 import { getWorkerByUid, now } from "@/lib/repo";
 import { getSite, pingShift } from "@/lib/shift-repo";
 import { checkGeofence } from "@/lib/geofence";
+import { createNotification } from "@/lib/notify";
 import type { GeoReading } from "@/lib/types";
 
 /** Periodic live location update while on shift → powers admin monitoring. */
@@ -31,12 +32,20 @@ export async function POST(req: NextRequest) {
 
   const geo = await checkGeofence(site, reading);
   try {
-    await pingShift({
+    const { transitionedOutside } = await pingShift({
       shiftId: body.shiftId,
       workerUid: worker.uid!,
       reading,
       inside: geo.inside,
     });
+    if (transitionedOutside) {
+      await createNotification({
+        type: "out_of_range",
+        message: `${worker.name} moved outside ${site.name}`,
+        workerName: worker.name,
+        siteName: site.name,
+      });
+    }
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });
   }

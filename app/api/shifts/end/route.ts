@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/session";
 import { getWorkerByUid, now } from "@/lib/repo";
 import { endShift, getActiveShift, getSite } from "@/lib/shift-repo";
 import { checkGeofence, reverseGeocodeAddress } from "@/lib/geofence";
+import { createNotification } from "@/lib/notify";
 import type { GeoReading } from "@/lib/types";
 
 export async function POST(req: NextRequest) {
@@ -53,6 +54,13 @@ export async function POST(req: NextRequest) {
     comment: body?.comment,
     inside: geo.inside,
     address,
+  });
+
+  await createNotification({
+    type: "clock_out",
+    message: `${worker.name} clocked out of ${site.name}`,
+    workerName: worker.name,
+    siteName: site.name,
   });
 
   return NextResponse.json({ ok: true, durationMinutes: minutes });

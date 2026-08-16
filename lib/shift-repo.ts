@@ -81,12 +81,16 @@ export async function pingShift(params: {
   const point = { ...reading, inside };
   const track = [...(data.track ?? []), point].slice(-600);
 
+  // Detect an inside→outside transition (for a one-time off-site alert).
+  const transitionedOutside = inside === false && data.currentlyInside !== false;
+
   await ref.update({
     lastPing: point,
     currentlyInside: inside,
     track,
     updatedAt: now(),
   });
+  return { transitionedOutside };
 }
 
 export async function endShift(params: {

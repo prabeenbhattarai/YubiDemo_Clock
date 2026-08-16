@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { orderBy, useLiveCollection } from "@/lib/live";
 import type { GeofenceType, Site } from "@/lib/types";
 import { Spinner, EmptyState, Field } from "@/components/ui";
 import Modal from "@/components/modal";
 import PlacePicker from "@/components/place-picker";
 import type { ResolvedPlace } from "@/lib/google-maps";
-import { IconMapPin, IconCamera } from "@/components/icons";
+import { IconMapPin, IconCamera, IconX } from "@/components/icons";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/confirm";
 
@@ -18,9 +18,22 @@ const GEOFENCE_LABELS: Record<GeofenceType, string> = {
 };
 
 export default function SitesPage() {
-  const { data: sites, loading } = useLiveCollection<Site>("sites", [orderBy("name")]);
+  const { data: allSites, loading } = useLiveCollection<Site>("sites", [orderBy("name")]);
   const [editing, setEditing] = useState<Site | null>(null);
   const [creating, setCreating] = useState(false);
+  const [q, setQ] = useState("");
+
+  useEffect(() => {
+    setQ(new URLSearchParams(window.location.search).get("q") || "");
+  }, []);
+
+  const sites = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    if (!t) return allSites;
+    return allSites.filter(
+      (s) => s.name.toLowerCase().includes(t) || (s.address || "").toLowerCase().includes(t)
+    );
+  }, [allSites, q]);
 
   return (
     <div>
@@ -35,6 +48,12 @@ export default function SitesPage() {
           + Add site
         </button>
       </div>
+
+      {q && (
+        <button onClick={() => setQ("")} className="chip bg-brand-50 text-brand-700 mb-4">
+          Filtered: “{q}” <IconX size={13} />
+        </button>
+      )}
 
       {loading ? (
         <div className="py-16 text-center text-[var(--color-muted)]">

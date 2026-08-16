@@ -12,12 +12,11 @@ import {
   IconUsers,
   IconLogout,
   IconMenu,
-  IconSearch,
-  IconBell,
-  IconMail,
   IconClipboard,
 } from "@/components/icons";
 import Logo from "@/components/logo";
+import GlobalSearch from "@/components/global-search";
+import NotificationsBell from "@/components/notifications-bell";
 
 const NAV = [
   { href: "/admin", label: "Dashboard", Icon: IconDashboard, exact: true },
@@ -120,20 +119,9 @@ export default function AdminShell({
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Desktop top bar */}
         <header className="hidden md:flex items-center gap-4 h-16 px-8 border-b border-[var(--color-line)] bg-white/70 backdrop-blur sticky top-0 z-20">
-          <div className="flex items-center gap-2 flex-1 max-w-md bg-[var(--color-canvas)] rounded-xl px-3 h-10 text-[var(--color-muted)]">
-            <IconSearch size={18} />
-            <input
-              className="bg-transparent outline-none text-sm w-full text-[var(--color-ink)]"
-              placeholder="Search workers, sites…"
-            />
-          </div>
+          <GlobalSearch />
           <div className="ml-auto flex items-center gap-2">
-            <button className="w-10 h-10 rounded-full grid place-items-center text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas)]" aria-label="Messages">
-              <IconMail size={19} />
-            </button>
-            <button className="w-10 h-10 rounded-full grid place-items-center text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas)]" aria-label="Notifications">
-              <IconBell size={19} />
-            </button>
+            <NotificationsBell />
             <div className="flex items-center gap-2.5 pl-2">
               {user.photoURL ? (
                 /* eslint-disable-next-line @next/next/no-img-element */

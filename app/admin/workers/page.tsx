@@ -1,20 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { orderBy, useLiveCollection } from "@/lib/live";
 import type { Site, Worker } from "@/lib/types";
 import { Spinner, EmptyState, Field } from "@/components/ui";
 import Modal from "@/components/modal";
 import { Toggle } from "../sites/page";
-import { IconUsers } from "@/components/icons";
+import { IconUsers, IconX } from "@/components/icons";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/confirm";
 
 export default function WorkersPage() {
-  const { data: workers, loading } = useLiveCollection<Worker>("workers", [orderBy("name")]);
+  const { data: allWorkers, loading } = useLiveCollection<Worker>("workers", [orderBy("name")]);
   const { data: sites } = useLiveCollection<Site>("sites", [orderBy("name")]);
   const [editing, setEditing] = useState<Worker | null>(null);
   const [creating, setCreating] = useState(false);
+  const [q, setQ] = useState("");
+
+  useEffect(() => {
+    setQ(new URLSearchParams(window.location.search).get("q") || "");
+  }, []);
+
+  const workers = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    if (!t) return allWorkers;
+    return allWorkers.filter(
+      (w) => w.name.toLowerCase().includes(t) || w.email.toLowerCase().includes(t)
+    );
+  }, [allWorkers, q]);
 
   const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? "—";
 
@@ -31,6 +44,15 @@ export default function WorkersPage() {
           + Add worker
         </button>
       </div>
+
+      {q && (
+        <button
+          onClick={() => setQ("")}
+          className="chip bg-brand-50 text-brand-700 mb-4"
+        >
+          Filtered: “{q}” <IconX size={13} />
+        </button>
+      )}
 
       {loading ? (
         <div className="py-16 text-center text-[var(--color-muted)]">

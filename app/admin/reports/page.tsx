@@ -275,24 +275,24 @@ function SiteExport() {
                 <thead>
                   <tr className="text-left text-[var(--color-muted)] border-b border-[var(--color-line)]">
                     <th className="p-3 font-medium">Date</th>
-                    <th className="p-3 font-medium">Worker</th>
+                    <th className="p-3 font-medium print:hidden">Worker</th>
                     <th className="p-3 font-medium">Time in</th>
                     <th className="p-3 font-medium">Time out</th>
                     <th className="p-3 font-medium">Break</th>
                     <th className="p-3 font-medium">Total</th>
-                    <th className="p-3 font-medium">Source</th>
+                    <th className="p-3 font-medium print:hidden">Source</th>
                   </tr>
                 </thead>
                 <tbody>
                   {g.entries.map((e, i) => (
                     <tr key={i} className="border-b border-[var(--color-line)] last:border-0">
                       <td className="p-3 whitespace-nowrap">{e.dateKey}</td>
-                      <td className="p-3">{e.workerName}</td>
+                      <td className="p-3 print:hidden">{e.workerName}</td>
                       <td className="p-3 whitespace-nowrap">{e.inMs ? formatAuTime(e.inMs) : "—"}</td>
                       <td className="p-3 whitespace-nowrap">{e.outMs ? formatAuTime(e.outMs) : "—"}</td>
                       <td className="p-3">{e.breakMinutes}m</td>
                       <td className="p-3 font-medium">{minutesToHhMm(e.totalMinutes)}</td>
-                      <td className="p-3 text-[var(--color-muted)]">{e.source}</td>
+                      <td className="p-3 text-[var(--color-muted)] print:hidden">{e.source}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -325,25 +325,23 @@ function exportCsv(groups: { label: string; entries: ExportEntry[]; totalMinutes
   const lines: string[] = [];
   for (const g of groups) {
     lines.push(esc(`Site: ${g.label}`));
-    lines.push(["Date", "Worker", "Time In", "Time Out", "Break (min)", "Total Hours", "Source"].map(esc).join(","));
+    lines.push(["Date", "Time In", "Time Out", "Break (min)", "Total Hours"].map(esc).join(","));
     for (const e of g.entries) {
       lines.push(
         [
           e.dateKey,
-          e.workerName,
           e.inMs ? formatAuTime(e.inMs) : "",
           e.outMs ? formatAuTime(e.outMs) : "",
           e.breakMinutes,
           hrs(e.totalMinutes),
-          e.source,
         ].map(esc).join(",")
       );
     }
-    lines.push(["", "", "", "", "Subtotal", hrs(g.totalMinutes), ""].map(esc).join(","));
+    lines.push(["", "", "", "Subtotal", hrs(g.totalMinutes)].map(esc).join(","));
     lines.push("");
   }
   const grand = groups.reduce((s, g) => s + g.totalMinutes, 0);
-  lines.push(["", "", "", "", "GRAND TOTAL", hrs(grand), ""].map(esc).join(","));
+  lines.push(["", "", "", "GRAND TOTAL", hrs(grand)].map(esc).join(","));
 
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);

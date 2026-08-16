@@ -15,12 +15,14 @@ import {
   IconSearch,
   IconBell,
   IconMail,
+  IconClipboard,
 } from "@/components/icons";
 import Logo from "@/components/logo";
 
 const NAV = [
   { href: "/admin", label: "Dashboard", Icon: IconDashboard, exact: true },
   { href: "/admin/approvals", label: "Approvals", Icon: IconApprovals },
+  { href: "/admin/reports", label: "Reports", Icon: IconClipboard },
   { href: "/admin/sites", label: "Sites", Icon: IconMapPin },
   { href: "/admin/workers", label: "Workers", Icon: IconUsers },
 ];

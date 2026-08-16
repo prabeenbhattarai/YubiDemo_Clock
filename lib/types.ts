@@ -92,6 +92,11 @@ export interface Shift {
   track?: ShiftPoint[];
 
   durationMinutes?: number;
+  /** Auto-applied unpaid break (30 min if shift > 4h); admin can override. */
+  breakMinutes?: number;
+
+  /** Manual reconciliation link to a submitted timesheet (set by admin). */
+  linkedTimesheetId?: string;
 
   // Approval workflow (mirrors timesheet workflow).
   approvalStatus: ApprovalStatus;

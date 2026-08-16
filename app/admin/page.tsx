@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useLiveCollection } from "@/lib/live";
 import type { Shift, Site, Timesheet, Worker } from "@/lib/types";
-import { elapsed, minutesToHhMm } from "@/lib/time";
+import { elapsed, minutesToHhMm, shiftWorkedMinutes } from "@/lib/time";
 import { useNow } from "@/components/live-clock";
 import { EmptyState, StatusPill } from "@/components/ui";
 import Modal from "@/components/modal";
@@ -45,7 +45,7 @@ export default function AdminDashboard() {
   const weekly = useMemo(() => {
     const buckets = [0, 0, 0, 0, 0, 0, 0];
     for (const s of shifts) {
-      if (s.durationMinutes) buckets[auWeekday(s.startedAt)] += s.durationMinutes;
+      if (s.durationMinutes) buckets[auWeekday(s.startedAt)] += shiftWorkedMinutes(s);
     }
     for (const t of timesheets) {
       buckets[auWeekday(t.startAt)] += t.adminTotalMinutes ?? t.totalMinutes;

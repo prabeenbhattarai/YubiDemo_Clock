@@ -78,6 +78,19 @@ export function minutesToHhMm(totalMin: number): string {
   return `${h}h ${m}m`;
 }
 
+/** Company rule: shifts longer than 4h get an automatic 30-min unpaid break. */
+export function autoBreakMinutes(grossMinutes: number): number {
+  return grossMinutes > 240 ? 30 : 0;
+}
+
+/** Net worked minutes for a clock-in shift (gross elapsed minus break). */
+export function shiftWorkedMinutes(shift: {
+  durationMinutes?: number;
+  breakMinutes?: number;
+}): number {
+  return Math.max(0, (shift.durationMinutes ?? 0) - (shift.breakMinutes ?? 0));
+}
+
 /**
  * Compute worked minutes for a manual timesheet.
  * Unpaid breaks are subtracted; paid breaks are not.

@@ -123,3 +123,13 @@ export async function listWorkers(): Promise<Worker[]> {
   const snap = await adminDb.collection(COL.workers).orderBy("name").get();
   return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Worker, "id">) }));
 }
+
+// ---- Reconciliation link ---------------------------------------------------
+
+/** Manually link a shift to a timesheet (or pass null to unlink). */
+export async function linkShiftTimesheet(shiftId: string, timesheetId: string | null) {
+  await adminDb
+    .collection(COL.shifts)
+    .doc(shiftId)
+    .set({ linkedTimesheetId: timesheetId, updatedAt: now() }, { merge: true });
+}

@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useCurrentUid, useLiveCollection, where } from "@/lib/live";
 import type { Shift, Timesheet } from "@/lib/types";
-import { formatAuDateTime, minutesToHhMm } from "@/lib/time";
+import { formatAuDateTime, minutesToHhMm, shiftWorkedMinutes } from "@/lib/time";
 import { StatusPill, Spinner, EmptyState } from "@/components/ui";
 import { IconClock, IconClipboard } from "@/components/icons";
 
@@ -32,7 +32,7 @@ export default function HistoryPage() {
   );
 
   const shiftMinutes = useMemo(
-    () => shifts.reduce((sum, s) => sum + (s.durationMinutes ?? 0), 0),
+    () => shifts.reduce((sum, s) => sum + shiftWorkedMinutes(s), 0),
     [shifts]
   );
   const tsMinutes = useMemo(
@@ -145,9 +145,14 @@ function ShiftRow({ shift }: { shift: Shift }) {
         </div>
       </div>
 
-      <div className="flex items-center gap-4 mt-3 text-sm">
+      <div className="flex items-center gap-3 mt-3 text-sm flex-wrap">
         {shift.durationMinutes != null && (
-          <span className="font-semibold">{minutesToHhMm(shift.durationMinutes)}</span>
+          <span className="font-semibold">{minutesToHhMm(shiftWorkedMinutes(shift))}</span>
+        )}
+        {(shift.breakMinutes ?? 0) > 0 && (
+          <span className="text-[var(--color-muted)] text-xs">
+            {shift.breakMinutes}m break deducted
+          </span>
         )}
         {shift.currentlyInside === false && shift.status === "active" && (
           <span className="text-warn text-xs">Outside boundary</span>

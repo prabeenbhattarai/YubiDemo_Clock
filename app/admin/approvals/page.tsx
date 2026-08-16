@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { orderBy, useLiveCollection } from "@/lib/live";
 import type { ApprovalStatus, Shift, Site, Timesheet } from "@/lib/types";
-import { formatAuDateTime, minutesToHhMm } from "@/lib/time";
+import { formatAuDateTime, minutesToHhMm, shiftWorkedMinutes } from "@/lib/time";
 import { StatusPill, Spinner, EmptyState } from "@/components/ui";
 import Modal from "@/components/modal";
 import ShiftMap from "@/components/shift-map";
@@ -158,7 +158,7 @@ function TimesheetList({ filter }: { filter: ApprovalStatus | "all" }) {
   );
 }
 
-function EditTimesheet({ ts, onClose }: { ts: Timesheet; onClose: () => void }) {
+export function EditTimesheet({ ts, onClose }: { ts: Timesheet; onClose: () => void }) {
   const [start, setStart] = useState(toLocalInput(ts.adminStartAt ?? ts.startAt));
   const [end, setEnd] = useState(toLocalInput(ts.adminEndAt ?? ts.endAt));
   const [breakMin, setBreakMin] = useState(ts.adminBreakMinutes ?? ts.breakMinutes);
@@ -240,9 +240,12 @@ function ShiftList({ filter }: { filter: ApprovalStatus | "all" }) {
             <StatusPill status={s.approvalStatus} />
           </div>
 
-          <div className="flex items-center gap-3 mt-3 text-sm">
+          <div className="flex items-center gap-3 mt-3 text-sm flex-wrap">
             {s.durationMinutes != null && (
-              <span className="font-semibold">{minutesToHhMm(s.durationMinutes)}</span>
+              <span className="font-semibold">{minutesToHhMm(shiftWorkedMinutes(s))}</span>
+            )}
+            {(s.breakMinutes ?? 0) > 0 && (
+              <span className="text-xs text-[var(--color-muted)]">{s.breakMinutes}m break</span>
             )}
             {(s.startPhotoUrl || s.endPhotoUrl) && (
               <span className="inline-flex items-center gap-1 text-xs text-[var(--color-muted)]">
@@ -297,18 +300,24 @@ function ShiftList({ filter }: { filter: ApprovalStatus | "all" }) {
   );
 }
 
-function EditShift({ shift, onClose }: { shift: Shift; onClose: () => void }) {
+export function EditShift({ shift, onClose }: { shift: Shift; onClose: () => void }) {
   const [start, setStart] = useState(toLocalInput(shift.startedAt));
   const [end, setEnd] = useState(toLocalInput(shift.endedAt ?? shift.startedAt));
+  const [breakMin, setBreakMin] = useState(shift.breakMinutes ?? 0);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const toast = useToast();
 
+  const startMs = new Date(start).getTime();
+  const endMs = new Date(end).getTime();
+  const worked = Math.max(0, Math.round((endMs - startMs) / 60000) - breakMin);
+
   async function save() {
     setSaving(true);
     const ok = await act(`/api/admin/approvals/shift/${shift.id}`, "edit", note, {
-      startedAt: new Date(start).getTime(),
-      endedAt: new Date(end).getTime(),
+      startedAt: startMs,
+      endedAt: endMs,
+      breakMinutes: Number(breakMin),
     }, toast);
     setSaving(false);
     if (ok) onClose();
@@ -318,7 +327,7 @@ function EditShift({ shift, onClose }: { shift: Shift; onClose: () => void }) {
     <Modal
       open
       onClose={onClose}
-      title="Edit shift times"
+      title="Edit shift"
       footer={
         <>
           <button className="btn-outline" onClick={onClose}>Cancel</button>
@@ -333,6 +342,11 @@ function EditShift({ shift, onClose }: { shift: Shift; onClose: () => void }) {
         <input type="datetime-local" className="input" value={start} onChange={(e) => setStart(e.target.value)} />
         <label className="label">Clock-out</label>
         <input type="datetime-local" className="input" value={end} onChange={(e) => setEnd(e.target.value)} />
+        <label className="label">Break (minutes) — auto 30 for shifts over 4h</label>
+        <input type="number" min={0} step={5} className="input" value={breakMin} onChange={(e) => setBreakMin(Math.max(0, Number(e.target.value)))} />
+        <div className="rounded-lg bg-[var(--color-canvas)] px-3 py-2 text-sm">
+          Net worked: <b>{minutesToHhMm(worked)}</b>
+        </div>
         <label className="label">Note (optional)</label>
         <input className="input" placeholder="Reason for edit" value={note} onChange={(e) => setNote(e.target.value)} />
       </div>

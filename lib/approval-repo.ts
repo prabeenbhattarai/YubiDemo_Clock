@@ -30,6 +30,7 @@ const ACTION_LABEL: Record<ApprovalAction, string> = {
 export interface ShiftEdit {
   startedAt?: number;
   endedAt?: number;
+  breakMinutes?: number;
 }
 
 export async function updateShiftApproval(params: {
@@ -59,6 +60,10 @@ export async function updateShiftApproval(params: {
     update.startedAt = startedAt;
     update.endedAt = endedAt;
     update.durationMinutes = Math.max(0, Math.round((endedAt - startedAt) / 60000));
+    // Admin can override the break; otherwise leave the existing value.
+    if (edit.breakMinutes != null) {
+      update.breakMinutes = Math.max(0, Math.round(edit.breakMinutes));
+    }
   }
 
   const entry: HistoryEntry = {

@@ -1,0 +1,355 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { useLiveCollection } from "@/lib/live";
+import type { Shift, Timesheet } from "@/lib/types";
+import { formatAuTime, minutesToHhMm, shiftWorkedMinutes } from "@/lib/time";
+import {
+  buildReconciliation,
+  buildSiteEntries,
+  groupByLocation,
+  timesheetWorkedMinutes,
+  type ReconRow,
+  type ExportEntry,
+} from "@/lib/reconcile";
+import { Spinner, EmptyState } from "@/components/ui";
+import { useToast } from "@/components/toast";
+import { IconClipboard, IconPencil, IconX, IconCheck, IconWarning } from "@/components/icons";
+import { EditShift, EditTimesheet } from "@/app/admin/approvals/page";
+
+export default function ReportsPage() {
+  const [tab, setTab] = useState<"reconcile" | "export">("reconcile");
+  return (
+    <div>
+      <h1 className="text-2xl font-bold">Reports</h1>
+      <p className="text-[var(--color-muted)] text-sm mb-5">
+        Match clock-ins with timesheets, and export hours by site.
+      </p>
+
+      <div className="flex gap-2 mb-5 no-print">
+        <TabBtn active={tab === "reconcile"} onClick={() => setTab("reconcile")}>
+          Reconcile
+        </TabBtn>
+        <TabBtn active={tab === "export"} onClick={() => setTab("export")}>
+          Site export
+        </TabBtn>
+      </div>
+
+      {tab === "reconcile" ? <Reconcile /> : <SiteExport />}
+    </div>
+  );
+}
+
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2 rounded-xl text-sm font-medium ${
+        active ? "bg-ink text-white" : "bg-white border border-[var(--color-line)]"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* ============================== RECONCILE =============================== */
+
+const STATE_LABEL: Record<ReconRow["state"], { text: string; cls: string }> = {
+  matched: { text: "Matched", cls: "pill-approved" },
+  "location-mismatch": { text: "Date only", cls: "pill-pending" },
+  "shift-only": { text: "No timesheet", cls: "pill-on_hold" },
+  "timesheet-only": { text: "No clock-in", cls: "pill-edited" },
+};
+
+function Reconcile() {
+  const { data: shifts, loading: l1 } = useLiveCollection<Shift>("shifts", []);
+  const { data: timesheets, loading: l2 } = useLiveCollection<Timesheet>("timesheets", []);
+  const toast = useToast();
+  const [editShift, setEditShift] = useState<Shift | null>(null);
+  const [editTs, setEditTs] = useState<Timesheet | null>(null);
+  const [dragTsId, setDragTsId] = useState<string | null>(null);
+
+  const rows = useMemo(() => buildReconciliation(shifts, timesheets), [shifts, timesheets]);
+
+  async function link(shiftId: string, timesheetId: string | null) {
+    const res = await fetch("/api/admin/reconcile", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ shiftId, timesheetId }),
+    });
+    if (res.ok) toast.success(timesheetId ? "Linked" : "Unlinked");
+    else toast.error("Could not update link");
+  }
+
+  if ((l1 || l2) && rows.length === 0)
+    return <div className="py-12 text-center text-[var(--color-muted)]"><Spinner /></div>;
+  if (rows.length === 0)
+    return <EmptyState icon={<IconClipboard size={22} />} title="Nothing to reconcile yet" />;
+
+  return (
+    <div>
+      <div className="rounded-lg bg-brand-50 text-brand-700 text-xs px-3 py-2 mb-3">
+        Drag a “No clock-in” timesheet onto a “No timesheet” shift to pair them.
+      </div>
+      <div className="card overflow-x-auto">
+        <table className="w-full text-sm min-w-[760px]">
+          <thead>
+            <tr className="text-left text-[var(--color-muted)] border-b border-[var(--color-line)]">
+              <th className="p-3 font-medium">Date</th>
+              <th className="p-3 font-medium">Worker</th>
+              <th className="p-3 font-medium">Location</th>
+              <th className="p-3 font-medium">Clock-in</th>
+              <th className="p-3 font-medium">Timesheet</th>
+              <th className="p-3 font-medium">Status</th>
+              <th className="p-3 font-medium text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const badge = STATE_LABEL[r.state];
+              const isDropTarget = r.state === "shift-only";
+              const isDraggable = r.state === "timesheet-only";
+              return (
+                <tr
+                  key={r.key}
+                  draggable={isDraggable}
+                  onDragStart={() => isDraggable && setDragTsId(r.timesheet!.id)}
+                  onDragOver={(e) => isDropTarget && dragTsId && e.preventDefault()}
+                  onDrop={() => {
+                    if (isDropTarget && dragTsId && r.shift) {
+                      link(r.shift.id, dragTsId);
+                      setDragTsId(null);
+                    }
+                  }}
+                  className={`border-b border-[var(--color-line)] last:border-0 ${
+                    isDraggable ? "cursor-grab" : ""
+                  } ${isDropTarget && dragTsId ? "bg-brand-50" : ""}`}
+                >
+                  <td className="p-3 whitespace-nowrap">{r.dateKey}</td>
+                  <td className="p-3">{r.workerName}</td>
+                  <td className="p-3 max-w-[180px] truncate">
+                    {r.shift?.siteName || r.timesheet?.siteLabel || "—"}
+                  </td>
+                  <td className="p-3 whitespace-nowrap">
+                    {r.shift ? (
+                      <>
+                        <div className="font-medium">{minutesToHhMm(shiftWorkedMinutes(r.shift))}</div>
+                        <div className="text-xs text-[var(--color-muted)]">
+                          {formatAuTime(r.shift.startedAt)}–{r.shift.endedAt ? formatAuTime(r.shift.endedAt) : "…"}
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-[var(--color-muted)]">—</span>
+                    )}
+                  </td>
+                  <td className="p-3 whitespace-nowrap">
+                    {r.timesheet ? (
+                      <>
+                        <div className="font-medium">{minutesToHhMm(timesheetWorkedMinutes(r.timesheet))}</div>
+                        <div className="text-xs text-[var(--color-muted)]">
+                          {formatAuTime(r.timesheet.startAt)}–{formatAuTime(r.timesheet.endAt)}
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-[var(--color-muted)]">—</span>
+                    )}
+                  </td>
+                  <td className="p-3">
+                    <span className={`chip ${badge.cls}`}>
+                      {r.state === "matched" ? <IconCheck size={12} /> : r.state === "location-mismatch" ? <IconWarning size={12} /> : null}
+                      {badge.text}
+                    </span>
+                  </td>
+                  <td className="p-3">
+                    <div className="flex items-center gap-1 justify-end">
+                      {r.shift && (
+                        <button className="btn-ghost px-2 py-1.5 text-xs" onClick={() => setEditShift(r.shift!)}>
+                          <IconPencil size={13} /> Shift
+                        </button>
+                      )}
+                      {r.timesheet && (
+                        <button className="btn-ghost px-2 py-1.5 text-xs" onClick={() => setEditTs(r.timesheet!)}>
+                          <IconPencil size={13} /> TS
+                        </button>
+                      )}
+                      {r.shift && r.timesheet && r.shift.linkedTimesheetId && (
+                        <button
+                          className="btn-ghost px-2 py-1.5 text-xs text-[var(--color-danger)]"
+                          onClick={() => link(r.shift!.id, null)}
+                          title="Unlink"
+                        >
+                          <IconX size={13} />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {editShift && <EditShift shift={editShift} onClose={() => setEditShift(null)} />}
+      {editTs && <EditTimesheet ts={editTs} onClose={() => setEditTs(null)} />}
+    </div>
+  );
+}
+
+/* =============================== SITE EXPORT ============================= */
+
+function SiteExport() {
+  const { data: shifts } = useLiveCollection<Shift>("shifts", []);
+  const { data: timesheets } = useLiveCollection<Timesheet>("timesheets", []);
+
+  const allEntries = useMemo(() => buildSiteEntries(shifts, timesheets), [shifts, timesheets]);
+  const locations = useMemo(
+    () => Array.from(new Set(allEntries.map((e) => e.location))).sort(),
+    [allEntries]
+  );
+
+  const [loc, setLoc] = useState("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const filtered = useMemo(
+    () =>
+      allEntries.filter(
+        (e) =>
+          (loc === "all" || e.location === loc) &&
+          (!from || e.dateKey >= from) &&
+          (!to || e.dateKey <= to)
+      ),
+    [allEntries, loc, from, to]
+  );
+  const groups = useMemo(() => groupByLocation(filtered), [filtered]);
+  const grandTotal = groups.reduce((s, g) => s + g.totalMinutes, 0);
+
+  return (
+    <div>
+      <div className="card p-4 mb-4 no-print flex flex-wrap items-end gap-3">
+        <div>
+          <label className="label">Site</label>
+          <select className="input" value={loc} onChange={(e) => setLoc(e.target.value)}>
+            <option value="all">All sites</option>
+            {locations.map((l) => (
+              <option key={l} value={l}>{l}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">From</label>
+          <input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">To</label>
+          <input type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} />
+        </div>
+        <div className="flex gap-2 ml-auto">
+          <button className="btn-outline" onClick={() => exportCsv(groups)} disabled={groups.length === 0}>
+            Export Excel
+          </button>
+          <button className="btn-primary" onClick={() => window.print()} disabled={groups.length === 0}>
+            Download PDF
+          </button>
+        </div>
+      </div>
+
+      <div className="print-area">
+        <div className="hidden print:block mb-4">
+          <h2 className="text-xl font-bold">Yubi Demolition — Hours by site</h2>
+          <p className="text-sm">{rangeLabel(from, to)}</p>
+        </div>
+
+        {groups.length === 0 ? (
+          <EmptyState icon={<IconClipboard size={22} />} title="No records for this filter" />
+        ) : (
+          groups.map((g) => (
+            <div key={g.label} className="card mb-4 overflow-x-auto">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-line)]">
+                <h3 className="font-semibold">{g.label}</h3>
+                <span className="chip pill-approved">{minutesToHhMm(g.totalMinutes)}</span>
+              </div>
+              <table className="w-full text-sm min-w-[640px]">
+                <thead>
+                  <tr className="text-left text-[var(--color-muted)] border-b border-[var(--color-line)]">
+                    <th className="p-3 font-medium">Date</th>
+                    <th className="p-3 font-medium">Worker</th>
+                    <th className="p-3 font-medium">Time in</th>
+                    <th className="p-3 font-medium">Time out</th>
+                    <th className="p-3 font-medium">Break</th>
+                    <th className="p-3 font-medium">Total</th>
+                    <th className="p-3 font-medium">Source</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {g.entries.map((e, i) => (
+                    <tr key={i} className="border-b border-[var(--color-line)] last:border-0">
+                      <td className="p-3 whitespace-nowrap">{e.dateKey}</td>
+                      <td className="p-3">{e.workerName}</td>
+                      <td className="p-3 whitespace-nowrap">{e.inMs ? formatAuTime(e.inMs) : "—"}</td>
+                      <td className="p-3 whitespace-nowrap">{e.outMs ? formatAuTime(e.outMs) : "—"}</td>
+                      <td className="p-3">{e.breakMinutes}m</td>
+                      <td className="p-3 font-medium">{minutesToHhMm(e.totalMinutes)}</td>
+                      <td className="p-3 text-[var(--color-muted)]">{e.source}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))
+        )}
+
+        {groups.length > 0 && (
+          <div className="flex justify-end items-center gap-3 px-1 py-2 font-semibold">
+            Grand total: <span className="text-brand-700">{minutesToHhMm(grandTotal)}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function rangeLabel(from: string, to: string) {
+  if (from && to) return `${from} to ${to}`;
+  if (from) return `From ${from}`;
+  if (to) return `Until ${to}`;
+  return "All dates";
+}
+
+/** Build a grouped CSV (Excel-openable) and trigger download. */
+function exportCsv(groups: { label: string; entries: ExportEntry[]; totalMinutes: number }[]) {
+  const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+  const hrs = (m: number) => (m / 60).toFixed(2);
+  const lines: string[] = [];
+  for (const g of groups) {
+    lines.push(esc(`Site: ${g.label}`));
+    lines.push(["Date", "Worker", "Time In", "Time Out", "Break (min)", "Total Hours", "Source"].map(esc).join(","));
+    for (const e of g.entries) {
+      lines.push(
+        [
+          e.dateKey,
+          e.workerName,
+          e.inMs ? formatAuTime(e.inMs) : "",
+          e.outMs ? formatAuTime(e.outMs) : "",
+          e.breakMinutes,
+          hrs(e.totalMinutes),
+          e.source,
+        ].map(esc).join(",")
+      );
+    }
+    lines.push(["", "", "", "", "Subtotal", hrs(g.totalMinutes), ""].map(esc).join(","));
+    lines.push("");
+  }
+  const grand = groups.reduce((s, g) => s + g.totalMinutes, 0);
+  lines.push(["", "", "", "", "GRAND TOTAL", hrs(grand), ""].map(esc).join(","));
+
+  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `yubi-hours-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}

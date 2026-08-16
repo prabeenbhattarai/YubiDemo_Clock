@@ -1,6 +1,7 @@
 import "server-only";
 import { adminDb } from "./firebase/admin";
 import { COL, now } from "./repo";
+import { autoBreakMinutes } from "./time";
 import type {
   GeoReading,
   HistoryEntry,
@@ -107,9 +108,13 @@ export async function endShift(params: {
 
   const t = now();
   const durationMinutes = Math.max(0, Math.round((t - data.startedAt) / 60000));
+  const breakMinutes = autoBreakMinutes(durationMinutes);
   const history: HistoryEntry[] = [
     ...(data.history ?? []),
     { at: t, by: worker.email, action: "Shift ended", note: comment || undefined },
+    ...(breakMinutes > 0
+      ? [{ at: t, by: "system", action: `Auto ${breakMinutes}-min break applied (>4h shift)` }]
+      : []),
   ];
   const endPoint = { ...reading, inside };
   const track = [...(data.track ?? []), endPoint].slice(-600);
@@ -125,6 +130,7 @@ export async function endShift(params: {
     currentlyInside: inside,
     track,
     durationMinutes,
+    breakMinutes,
     history,
     updatedAt: t,
   });

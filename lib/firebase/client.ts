@@ -3,11 +3,16 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import {
   getAuth,
+  initializeAuth,
+  browserLocalPersistence,
+  indexedDBLocalPersistence,
+  inMemoryPersistence,
   connectAuthEmulator,
   type Auth,
 } from "firebase/auth";
 import {
   getFirestore,
+  initializeFirestore,
   connectFirestoreEmulator,
   type Firestore,
 } from "firebase/firestore";
@@ -46,8 +51,30 @@ function ensure() {
   } else {
     app = getApp();
   }
-  auth = getAuth(app);
-  db = getFirestore(app);
+
+  // Auth: prefer localStorage over IndexedDB. IndexedDB throws
+  // "the database connection is closing" on mobile Safari / in-app browsers /
+  // private mode, which silently breaks auth state (and then Firestore reads).
+  try {
+    auth = initializeAuth(app, {
+      persistence: [
+        browserLocalPersistence,
+        indexedDBLocalPersistence,
+        inMemoryPersistence,
+      ],
+    });
+  } catch {
+    auth = getAuth(app); // already initialized (HMR / repeat calls)
+  }
+
+  // Firestore: auto-detect long-polling. Mobile networks / proxies often break
+  // the default streaming (WebChannel) connection, which stalls real-time reads.
+  try {
+    db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+  } catch {
+    db = getFirestore(app); // already initialized
+  }
+
   storage = getStorage(app);
 
   if (USE_EMULATOR && typeof window !== "undefined" && !globalThis.__TS_EMULATORS_CONNECTED__) {

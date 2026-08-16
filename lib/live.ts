@@ -22,13 +22,23 @@ type WithId<T> = T & { id: string };
 export function useLiveCollection<T>(
   path: string,
   constraints: QueryConstraint[] = [],
-  deps: unknown[] = []
+  deps: unknown[] = [],
+  /**
+   * When false, the hook does NOT subscribe. Use this to avoid querying a
+   * collection before a required filter (e.g. the worker's uid) is ready —
+   * an unfiltered read is rejected by the security rules and shows nothing.
+   */
+  enabled: boolean = true
 ): { data: WithId<T>[]; loading: boolean; error: string | null } {
   const [data, setData] = useState<WithId<T>[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(true);
+      return;
+    }
     let unsub: (() => void) | undefined;
     let active = true;
 

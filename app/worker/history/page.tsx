@@ -12,12 +12,14 @@ export default function HistoryPage() {
   const { data: shifts, loading: l1 } = useLiveCollection<Shift>(
     "shifts",
     uid ? [where("workerUid", "==", uid)] : [],
-    [uid]
+    [uid],
+    !!uid
   );
   const { data: timesheets, loading: l2 } = useLiveCollection<Timesheet>(
     "timesheets",
     uid ? [where("workerUid", "==", uid)] : [],
-    [uid]
+    [uid],
+    !!uid
   );
 
   const shiftsSorted = useMemo(

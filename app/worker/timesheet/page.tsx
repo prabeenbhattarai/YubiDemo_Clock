@@ -91,7 +91,8 @@ export default function TimesheetPage() {
   const { data: timesheets, loading } = useLiveCollection<Timesheet>(
     "timesheets",
     uid ? [where("workerUid", "==", uid)] : [],
-    [uid]
+    [uid],
+    !!uid
   );
 
   const sorted = useMemo(

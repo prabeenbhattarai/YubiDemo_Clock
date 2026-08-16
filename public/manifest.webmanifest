@@ -1,0 +1,13 @@
+{
+  "name": "Yubi Demolition — Timesheets & Clock-in",
+  "short_name": "Yubi Demolition",
+  "description": "Geofenced clock-in and timesheet approvals.",
+  "start_url": "/worker",
+  "display": "standalone",
+  "background_color": "#3d1a1a",
+  "theme_color": "#3d1a1a",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

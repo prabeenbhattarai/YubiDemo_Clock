@@ -1,0 +1,189 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   Clockwise design system — professional, calm, mobile-first.
+   ========================================================================== */
+@theme {
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+
+  /* Worker app accent (blue/teal — Time Clock style) */
+  --color-ocean-50: #eff6ff;
+  --color-ocean-100: #dbeafe;
+  --color-ocean-200: #bfdbfe;
+  --color-ocean-300: #93c5fd;
+  --color-ocean-400: #60a5fa;
+  --color-ocean-500: #3b82f6;
+  --color-ocean-600: #2563eb;
+  --color-ocean-700: #1d4ed8;
+  --color-teal-300: #5eead4;
+  --color-teal-400: #2dd4bf;
+  --color-teal-500: #14b8a6;
+
+  --color-ink: #0f172a;
+  --color-ink-soft: #334155;
+  --color-muted: #64748b;
+  --color-line: #e2e8f0;
+  --color-surface: #ffffff;
+  --color-canvas: #f1f5f9;
+
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-warn: #d97706;
+  --color-warn-soft: #fef3c7;
+
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+
+  --radius-xl2: 1.25rem;
+}
+
+:root {
+  --background: var(--color-canvas);
+  --foreground: var(--color-ink);
+}
+
+html {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+/* Prevent pull-to-refresh / overscroll bounce for the app feel. */
+html,
+body {
+  overscroll-behavior-y: none;
+}
+
+/* Safe-area helpers for notched phones. */
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Reusable component classes ------------------------------------------------ */
+@layer components {
+  .card {
+    @apply bg-[var(--color-surface)] rounded-2xl border border-[var(--color-line)] shadow-sm;
+  }
+
+  /* Shared button base (grouped so variants don't need to @apply .btn). */
+  .btn,
+  .btn-primary,
+  .btn-success,
+  .btn-danger,
+  .btn-ghost,
+  .btn-outline {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl font-semibold
+           transition active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none
+           px-4 py-3 text-sm;
+  }
+  .btn-primary {
+    @apply bg-brand-600 text-white hover:bg-brand-700;
+  }
+  .btn-success {
+    @apply bg-[var(--color-success)] text-white hover:brightness-95;
+  }
+  .btn-danger {
+    @apply bg-[var(--color-danger)] text-white hover:brightness-95;
+  }
+  .btn-ghost {
+    @apply bg-[var(--color-canvas)] text-[var(--color-ink-soft)] hover:bg-[var(--color-line)];
+  }
+  .btn-outline {
+    @apply border border-[var(--color-line)] bg-white text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas)];
+  }
+  .input {
+    @apply w-full rounded-xl border border-[var(--color-line)] bg-white px-4 py-3 text-sm
+           outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100;
+  }
+  .label {
+    @apply block text-sm font-medium text-[var(--color-ink-soft)] mb-1.5;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium;
+  }
+}
+
+/* Toast animations */
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toastOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-8px); }
+}
+.toast-in { animation: toastIn 0.22s ease-out both; }
+.toast-out { animation: toastOut 0.3s ease-in both; }
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-in { animation: fadeInUp 0.25s ease-out both; }
+
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #eef2f6 25%, #e2e8f0 37%, #eef2f6 63%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 8px;
+}
+
+/* Admin dark-green panel (Donezo Time Tracker) */
+.grad-ocean-dark {
+  background-image: linear-gradient(140deg, #14532d 0%, #166534 55%, #052e16 100%);
+}
+
+/* Worker (Time Clock) gradients */
+.grad-ocean {
+  background-image: linear-gradient(135deg, #4f9df9 0%, #2563eb 100%);
+}
+.grad-start {
+  background-image: linear-gradient(145deg, #38bdf8 0%, #22d3ee 55%, #2dd4bf 100%);
+}
+.grad-stop {
+  background-image: linear-gradient(145deg, #fb7185 0%, #f43f5e 100%);
+}
+.shadow-ocean {
+  box-shadow: 0 12px 30px -8px rgba(37, 99, 235, 0.5);
+}
+.shadow-start {
+  box-shadow: 0 14px 34px -6px rgba(20, 184, 166, 0.55);
+}
+
+.btn-ocean {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl font-semibold
+         transition active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none
+         px-4 py-3 text-sm text-white;
+  background-image: linear-gradient(135deg, #38bdf8 0%, #2563eb 100%);
+}
+
+/* Status pill helpers */
+.pill-pending { background: var(--color-warn-soft); color: var(--color-warn); }
+.pill-approved { background: var(--color-success-soft); color: var(--color-success); }
+.pill-declined { background: var(--color-danger-soft); color: var(--color-danger); }
+.pill-on_hold { background: #e0e7ff; color: var(--color-brand-700); }
+.pill-edited { background: #f1f5f9; color: var(--color-ink-soft); }
+.pill-active { background: var(--color-success-soft); color: var(--color-success); }
+.pill-completed { background: #f1f5f9; color: var(--color-muted); }

@@ -29,12 +29,26 @@ if (USE_EMULATOR) {
 function createApp(): App {
   if (getApps().length) return getApp();
 
-  // Production: real service account credentials.
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!USE_EMULATOR && raw) {
-    const svc = JSON.parse(raw);
+  // Production: real service account credentials are REQUIRED.
+  if (!USE_EMULATOR) {
+    const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+    if (!raw || raw.trim() === "" || raw.includes("BEGIN PRIVATE KEY-----\\n...")) {
+      throw new Error(
+        "FIREBASE_SERVICE_ACCOUNT is missing or is still the placeholder. " +
+          "Set it in your host's environment variables to the full service-account JSON (one line)."
+      );
+    }
+    let svc: { project_id?: string };
+    try {
+      svc = JSON.parse(raw);
+    } catch {
+      throw new Error(
+        "FIREBASE_SERVICE_ACCOUNT is not valid JSON. Paste the ENTIRE key file as a single line " +
+          '(use: node -e "console.log(JSON.stringify(require(\'./key.json\')))").'
+      );
+    }
     return initializeApp({
-      credential: cert(svc),
+      credential: cert(svc as Parameters<typeof cert>[0]),
       projectId: svc.project_id || PROJECT_ID,
       storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
     });

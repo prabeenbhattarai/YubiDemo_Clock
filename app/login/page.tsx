@@ -1,25 +1,41 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { loginWithGoogle } from "@/lib/client-auth";
+import { loginWithGoogle, completeGoogleRedirect } from "@/lib/client-auth";
 import { Spinner } from "@/components/ui";
 import Logo from "@/components/logo";
 
 export default function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [finishing, setFinishing] = useState(true);
   const [error, setError] = useState("");
+
+  // Finish a redirect-based sign-in when we land back on this page.
+  useEffect(() => {
+    completeGoogleRedirect()
+      .then((user) => {
+        if (user) router.replace(user.role === "admin" ? "/admin" : "/worker");
+        else setFinishing(false);
+      })
+      .catch((err) => {
+        setError((err as Error).message || "Sign-in failed.");
+        setFinishing(false);
+      });
+  }, [router]);
 
   async function google() {
     setError("");
     setLoading(true);
     try {
       const user = await loginWithGoogle();
-      router.replace(user.role === "admin" ? "/admin" : "/worker");
+      if (user) {
+        router.replace(user.role === "admin" ? "/admin" : "/worker");
+      }
+      // null → a redirect was started; the browser navigates away now.
     } catch (err) {
       const msg = (err as Error).message || "Sign-in failed.";
-      // Popup closed by the user isn't an error worth shouting about.
       if (!/popup|cancel|closed/i.test(msg)) setError(msg);
       setLoading(false);
     }

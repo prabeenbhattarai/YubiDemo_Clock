@@ -7,6 +7,7 @@ import {
   browserLocalPersistence,
   indexedDBLocalPersistence,
   inMemoryPersistence,
+  browserPopupRedirectResolver,
   connectAuthEmulator,
   type Auth,
 } from "firebase/auth";
@@ -62,6 +63,9 @@ function ensure() {
         indexedDBLocalPersistence,
         inMemoryPersistence,
       ],
+      // REQUIRED with initializeAuth for signInWithPopup/Redirect + getRedirectResult.
+      // Without it these throw auth/argument-error (getAuth adds it automatically).
+      popupRedirectResolver: browserPopupRedirectResolver,
     });
   } catch {
     auth = getAuth(app); // already initialized (HMR / repeat calls)

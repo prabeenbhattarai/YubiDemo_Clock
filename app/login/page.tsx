@@ -45,7 +45,6 @@ export default function LoginPage() {
     <main className="min-h-dvh flex flex-col justify-center px-6 py-10 bg-gradient-to-b from-brand-700 to-brand-900">
       <div className="w-full max-w-sm mx-auto">
         <div className="text-center mb-8 text-white">
-          <p className="text-brand-200 text-sm">Clock-in &amp; timesheets</p>
         </div>
 
         <div className="card p-6">
@@ -72,7 +71,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-brand-200 text-xs mt-6">
-          Secure sign-in with Google. No passwords, no codes.
+          Yubi Demolition Pty Ltd &copy; 2026. All rights reserved.
         </p>
       </div>
     </main>

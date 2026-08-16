@@ -32,5 +32,11 @@
     "firebase-tools": "^15.27.0",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "overrides": {
+    "jose": "^5.9.6"
   }
 }

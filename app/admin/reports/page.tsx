@@ -19,6 +19,7 @@ import {
   fortnightLabel,
 } from "@/lib/fortnight";
 import { Spinner, EmptyState } from "@/components/ui";
+import Modal from "@/components/modal";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/confirm";
 import {
@@ -28,6 +29,7 @@ import {
   IconCheck,
   IconWarning,
   IconTrash,
+  IconLink,
 } from "@/components/icons";
 import { EditShift, EditTimesheet } from "@/app/admin/approvals/page";
 
@@ -86,6 +88,7 @@ function Reconcile() {
   const [editShift, setEditShift] = useState<Shift | null>(null);
   const [editTs, setEditTs] = useState<Timesheet | null>(null);
   const [dragTsId, setDragTsId] = useState<string | null>(null);
+  const [linkFor, setLinkFor] = useState<ReconRow | null>(null);
   const periods = useMemo(() => listFortnights(), []);
   const [period, setPeriod] = useState(() => fortnightStartKey(new Date().toISOString().slice(0, 10)));
 
@@ -101,7 +104,10 @@ function Reconcile() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ shiftId, timesheetId }),
     });
-    if (res.ok) toast.success(timesheetId ? "Linked" : "Unlinked");
+    if (res.ok)
+      toast.success(
+        timesheetId ? "Linked — combined into one row" : "Unlinked into two rows"
+      );
     else toast.error("Could not update link");
   }
 
@@ -152,7 +158,7 @@ function Reconcile() {
         </span>
       </div>
       <div className="rounded-lg bg-brand-50 text-brand-700 text-xs px-3 py-2 mb-3">
-        Drag a “No clock-in” timesheet onto a “No timesheet” shift to pair them. Use ✓ to approve a matched row.
+        Pair an unmatched clock-in with its timesheet: click <b>Link</b> and pick the match (works on any device), or drag one “No clock-in” row onto a “No timesheet” row. Paired rows merge into one.
       </div>
       {rows.length === 0 ? (
         <EmptyState icon={<IconClipboard size={22} />} title="Nothing in this period" />
@@ -189,7 +195,7 @@ function Reconcile() {
                   }}
                   className={`border-b border-[var(--color-line)] last:border-0 ${
                     isDraggable ? "cursor-grab" : ""
-                  } ${isDropTarget && dragTsId ? "bg-brand-50" : ""}`}
+                  } ${isDropTarget && dragTsId ? "bg-brand-50 outline-dashed outline-2 outline-brand-400" : ""}`}
                 >
                   <td className="p-3 whitespace-nowrap">{r.dateKey}</td>
                   <td className="p-3">{r.workerName}</td>
@@ -231,6 +237,11 @@ function Reconcile() {
                       <button className="btn-success px-2 py-1.5 text-xs" onClick={() => approveRow(r)} title="Approve">
                         <IconCheck size={13} />
                       </button>
+                      {(r.state === "shift-only" || r.state === "timesheet-only") && (
+                        <button className="btn-outline px-2 py-1.5 text-xs" onClick={() => setLinkFor(r)} title="Link to its counterpart">
+                          <IconLink size={13} /> Link
+                        </button>
+                      )}
                       {r.shift && (
                         <button className="btn-ghost px-2 py-1.5 text-xs" onClick={() => setEditShift(r.shift!)} title="Edit shift">
                           <IconPencil size={13} /> Shift
@@ -272,6 +283,69 @@ function Reconcile() {
 
       {editShift && <EditShift shift={editShift} onClose={() => setEditShift(null)} />}
       {editTs && <EditTimesheet ts={editTs} onClose={() => setEditTs(null)} />}
+
+      {linkFor && (
+        <Modal
+          open
+          onClose={() => setLinkFor(null)}
+          title={linkFor.state === "shift-only" ? "Link a timesheet to this shift" : "Link a clock-in to this timesheet"}
+        >
+          <div className="mb-3 text-sm text-[var(--color-muted)]">
+            {linkFor.workerName} · {linkFor.dateKey} ·{" "}
+            {linkFor.shift?.siteName || linkFor.timesheet?.siteLabel}
+          </div>
+          {(() => {
+            const wantTimesheet = linkFor.state === "shift-only";
+            const candidates = allRows.filter((c) =>
+              wantTimesheet ? c.state === "timesheet-only" : c.state === "shift-only"
+            );
+            // Same worker first, then everyone else.
+            candidates.sort((a, b) => {
+              const aw = a.workerUid === linkFor.workerUid ? 0 : 1;
+              const bw = b.workerUid === linkFor.workerUid ? 0 : 1;
+              return aw - bw || b.dateKey.localeCompare(a.dateKey);
+            });
+            if (candidates.length === 0)
+              return (
+                <p className="text-sm text-[var(--color-muted)] py-6 text-center">
+                  Nothing available to link. Every {wantTimesheet ? "timesheet" : "clock-in"} is already paired.
+                </p>
+              );
+            return (
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {candidates.map((c) => {
+                  const rec = wantTimesheet ? c.timesheet! : c.shift!;
+                  const mins = wantTimesheet
+                    ? timesheetWorkedMinutes(c.timesheet!)
+                    : shiftWorkedMinutes(c.shift!);
+                  const site = wantTimesheet ? c.timesheet!.siteLabel : c.shift!.siteName;
+                  const sameWorker = c.workerUid === linkFor.workerUid;
+                  return (
+                    <button
+                      key={c.key}
+                      onClick={() => {
+                        const shiftId = wantTimesheet ? linkFor.shift!.id : c.shift!.id;
+                        const tsId = wantTimesheet ? c.timesheet!.id : linkFor.timesheet!.id;
+                        link(shiftId, tsId);
+                        setLinkFor(null);
+                      }}
+                      className="w-full text-left rounded-xl border border-[var(--color-line)] hover:bg-[var(--color-canvas)] px-3 py-2.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-sm">{c.workerName}</span>
+                        {sameWorker && <span className="chip pill-approved">same worker</span>}
+                      </div>
+                      <div className="text-xs text-[var(--color-muted)]">
+                        {c.dateKey} · {site} · {minutesToHhMm(mins)}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </Modal>
+      )}
     </div>
   );
 }

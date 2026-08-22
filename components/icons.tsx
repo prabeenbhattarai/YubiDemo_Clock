@@ -209,6 +209,14 @@ export const IconClipboard = (p: IconProps) => (
   </Base>
 );
 
+export const IconLink = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M9 15l6-6" />
+    <path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1" />
+    <path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1" />
+  </Base>
+);
+
 export const IconTrash = (p: IconProps) => (
   <Base {...p}>
     <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />

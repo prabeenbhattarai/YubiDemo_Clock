@@ -6,6 +6,7 @@ import type { ApprovalStatus, Shift, Site, Timesheet } from "@/lib/types";
 import { formatAuDateTime, minutesToHhMm, shiftWorkedMinutes } from "@/lib/time";
 import { StatusPill, Spinner, EmptyState } from "@/components/ui";
 import Modal from "@/components/modal";
+import { ShiftDetailModal, TimesheetDetailModal } from "@/components/record-detail";
 import ShiftMap from "@/components/shift-map";
 import { useToast } from "@/components/toast";
 import {
@@ -16,6 +17,7 @@ import {
   IconCamera,
   IconApprovals,
   IconMapPin,
+  IconInfo,
 } from "@/components/icons";
 
 const ACTION_TOAST: Record<string, string> = {
@@ -111,6 +113,7 @@ function TimesheetList({ filter }: { filter: ApprovalStatus | "all" }) {
   const toast = useToast();
   const rows = data.filter((t) => filter === "all" || t.status === filter);
   const [editing, setEditing] = useState<Timesheet | null>(null);
+  const [detail, setDetail] = useState<Timesheet | null>(null);
 
   if (loading)
     return <div className="py-12 text-center text-[var(--color-muted)]"><Spinner /></div>;
@@ -146,6 +149,7 @@ function TimesheetList({ filter }: { filter: ApprovalStatus | "all" }) {
               act(`/api/admin/approvals/timesheet/${ts.id}`, action, note, undefined, toast)
             }
             onEdit={() => setEditing(ts)}
+            onDetails={() => setDetail(ts)}
             status={ts.status}
           />
         </div>
@@ -153,6 +157,16 @@ function TimesheetList({ filter }: { filter: ApprovalStatus | "all" }) {
 
       {editing && (
         <EditTimesheet ts={editing} onClose={() => setEditing(null)} />
+      )}
+      {detail && (
+        <TimesheetDetailModal
+          ts={detail}
+          onClose={() => setDetail(null)}
+          onEdit={() => {
+            setEditing(detail);
+            setDetail(null);
+          }}
+        />
       )}
     </div>
   );
@@ -218,6 +232,7 @@ function ShiftList({ filter }: { filter: ApprovalStatus | "all" }) {
     .filter((s) => filter === "all" || s.approvalStatus === filter);
   const [editing, setEditing] = useState<Shift | null>(null);
   const [mapShift, setMapShift] = useState<Shift | null>(null);
+  const [detail, setDetail] = useState<Shift | null>(null);
 
   if (loading)
     return <div className="py-12 text-center text-[var(--color-muted)]"><Spinner /></div>;
@@ -277,12 +292,24 @@ function ShiftList({ filter }: { filter: ApprovalStatus | "all" }) {
               act(`/api/admin/approvals/shift/${s.id}`, action, note, undefined, toast)
             }
             onEdit={() => setEditing(s)}
+            onDetails={() => setDetail(s)}
             status={s.approvalStatus}
           />
         </div>
       ))}
 
       {editing && <EditShift shift={editing} onClose={() => setEditing(null)} />}
+      {detail && (
+        <ShiftDetailModal
+          shift={detail}
+          site={sites.find((s) => s.id === detail.siteId) ?? null}
+          onClose={() => setDetail(null)}
+          onEdit={() => {
+            setEditing(detail);
+            setDetail(null);
+          }}
+        />
+      )}
 
       {mapShift && (
         <Modal open onClose={() => setMapShift(null)} title={`${mapShift.workerName} · route`}>
@@ -371,10 +398,12 @@ function Thumb({ url, label }: { url: string; label: string }) {
 function Actions({
   onAction,
   onEdit,
+  onDetails,
   status,
 }: {
   onAction: (action: string, note?: string) => Promise<unknown>;
   onEdit: () => void;
+  onDetails?: () => void;
   status: ApprovalStatus;
 }) {
   const [busy, setBusy] = useState("");
@@ -385,6 +414,11 @@ function Actions({
   }
   return (
     <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-[var(--color-line)]">
+      {onDetails && (
+        <button className="btn-outline px-3 py-2 text-xs" onClick={onDetails} disabled={!!busy}>
+          <IconInfo size={15} /> Details
+        </button>
+      )}
       {status !== "approved" && (
         <button className="btn-success px-3 py-2 text-xs" onClick={() => run("approve")} disabled={!!busy}>
           {busy === "approve" ? <Spinner /> : <><IconCheck size={15} /> Approve</>}

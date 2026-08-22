@@ -61,7 +61,7 @@ export interface Fortnight {
 }
 
 /** Recent fortnights (current + a few future/past), newest first. */
-export function listFortnights(pastCount = 12, futureCount = 1): Fortnight[] {
+export function listFortnights(pastCount = 12, futureCount = 3): Fortnight[] {
   const curStart = fortnightStartKey(auDateKey(Date.now()));
   const out: Fortnight[] = [];
   for (let i = futureCount; i >= -pastCount; i--) {

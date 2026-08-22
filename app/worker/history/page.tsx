@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useCurrentUid, useLiveCollection, where } from "@/lib/live";
 import type { Shift, Timesheet } from "@/lib/types";
 import { formatAuDateTime, minutesToHhMm, shiftWorkedMinutes } from "@/lib/time";
+import { fortnightStartForMs, fortnightLabel } from "@/lib/fortnight";
 import { StatusPill, Spinner, EmptyState } from "@/components/ui";
 import { IconClock, IconClipboard } from "@/components/icons";
 
@@ -41,6 +42,29 @@ export default function HistoryPage() {
   );
   const totalMinutes = shiftMinutes + tsMinutes;
 
+  // Group everything into fortnightly working periods (newest first).
+  const groups = useMemo(() => {
+    const map = new Map<
+      string,
+      { startKey: string; shifts: Shift[]; timesheets: Timesheet[]; total: number }
+    >();
+    const get = (key: string) => {
+      if (!map.has(key)) map.set(key, { startKey: key, shifts: [], timesheets: [], total: 0 });
+      return map.get(key)!;
+    };
+    for (const s of shiftsSorted) {
+      const g = get(fortnightStartForMs(s.startedAt));
+      g.shifts.push(s);
+      g.total += shiftWorkedMinutes(s);
+    }
+    for (const t of tsSorted) {
+      const g = get(fortnightStartForMs(t.startAt));
+      g.timesheets.push(t);
+      g.total += t.adminTotalMinutes ?? t.totalMinutes ?? 0;
+    }
+    return [...map.values()].sort((a, b) => b.startKey.localeCompare(a.startKey));
+  }, [shiftsSorted, tsSorted]);
+
   const loading = (l1 || l2) && !uid;
 
   return (
@@ -69,37 +93,31 @@ export default function HistoryPage() {
               </div>
             </div>
 
-            {/* Clock-in shifts */}
-            <section>
-              <SectionHeader
-                title="Clock-in shifts"
-                total={shiftMinutes}
-                count={shifts.length}
-              />
-              {shiftsSorted.length === 0 ? (
-                <EmptyState icon={<IconClock size={22} />} title="No shifts yet" />
-              ) : (
-                <div className="space-y-3">
-                  {shiftsSorted.map((s) => (
-                    <ShiftRow key={s.id} shift={s} />
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {/* Timesheets */}
-            <section>
-              <SectionHeader title="Timesheets" total={tsMinutes} count={timesheets.length} />
-              {tsSorted.length === 0 ? (
-                <EmptyState icon={<IconClipboard size={22} />} title="No timesheets yet" />
-              ) : (
-                <div className="space-y-3">
-                  {tsSorted.map((t) => (
-                    <TimesheetRow key={t.id} ts={t} />
-                  ))}
-                </div>
-              )}
-            </section>
+            {/* Fortnightly sections */}
+            {groups.length === 0 ? (
+              <EmptyState icon={<IconClock size={22} />} title="No records yet" />
+            ) : (
+              groups.map((g) => (
+                <section key={g.startKey}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-sm font-semibold text-[var(--color-ink)]">
+                      {fortnightLabel(g.startKey)}
+                    </h2>
+                    <span className="chip bg-ocean-50 text-ocean-700 font-semibold">
+                      {minutesToHhMm(g.total)}
+                    </span>
+                  </div>
+                  <div className="space-y-3">
+                    {g.shifts.map((s) => (
+                      <ShiftRow key={s.id} shift={s} />
+                    ))}
+                    {g.timesheets.map((t) => (
+                      <TimesheetRow key={t.id} ts={t} />
+                    ))}
+                  </div>
+                </section>
+              ))
+            )}
           </>
         )}
       </main>
@@ -107,26 +125,6 @@ export default function HistoryPage() {
   );
 }
 
-function SectionHeader({
-  title,
-  total,
-  count,
-}: {
-  title: string;
-  total: number;
-  count: number;
-}) {
-  return (
-    <div className="flex items-center justify-between mb-3">
-      <h2 className="text-sm font-semibold text-[var(--color-muted)] uppercase tracking-wide">
-        {title} {count > 0 && <span className="normal-case font-normal">({count})</span>}
-      </h2>
-      <span className="chip bg-ocean-50 text-ocean-700 font-semibold">
-        {minutesToHhMm(total)}
-      </span>
-    </div>
-  );
-}
 
 function ShiftRow({ shift }: { shift: Shift }) {
   return (

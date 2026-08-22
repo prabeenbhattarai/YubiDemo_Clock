@@ -133,3 +133,13 @@ export async function linkShiftTimesheet(shiftId: string, timesheetId: string | 
     .doc(shiftId)
     .set({ linkedTimesheetId: timesheetId, updatedAt: now() }, { merge: true });
 }
+
+// ---- Delete shift / timesheet (admin reconciliation cleanup) --------------
+
+export async function deleteShiftDoc(id: string) {
+  await adminDb.collection(COL.shifts).doc(id).delete();
+}
+
+export async function deleteTimesheetDoc(id: string) {
+  await adminDb.collection(COL.timesheets).doc(id).delete();
+}

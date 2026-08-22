@@ -12,6 +12,7 @@ export interface TimesheetInput {
   endAt: number;
   breakMinutes: BreakMinutes;
   breakPaid: boolean;
+  periodStart?: string;
   note?: string;
 }
 
@@ -41,6 +42,7 @@ export async function createTimesheet(
     endAt: input.endAt,
     breakMinutes: input.breakMinutes,
     breakPaid: input.breakPaid,
+    periodStart: input.periodStart ?? null,
     totalMinutes,
     totalHours: Math.round((totalMinutes / 60) * 100) / 100,
     status: "pending",

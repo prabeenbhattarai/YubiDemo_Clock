@@ -140,6 +140,9 @@ export interface Timesheet {
   breakMinutes: BreakMinutes;
   breakPaid: boolean;
 
+  /** Fortnightly working period this entry was logged for (Monday start key). */
+  periodStart?: string;
+
   /** Computed. Total minutes counted as worked (paid). */
   totalMinutes: number;
   totalHours: number;

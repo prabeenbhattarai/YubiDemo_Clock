@@ -4,11 +4,18 @@ import { useEffect, useMemo, useState } from "react";
 import { useCurrentUid, useLiveCollection, where } from "@/lib/live";
 import type { BreakMinutes, Timesheet } from "@/lib/types";
 import { computeWorkedMinutes, formatAuDateTime, minutesToHhMm } from "@/lib/time";
+import { auDateKey } from "@/lib/reconcile";
+import {
+  listFortnights,
+  fortnightStartKey,
+  isWithinFortnight,
+  fortnightLabel,
+} from "@/lib/fortnight";
 import { StatusPill, Spinner, Field, EmptyState } from "@/components/ui";
 import PlaceSearch from "@/components/place-search";
 import { Toggle } from "@/app/admin/sites/page";
 import { useToast } from "@/components/toast";
-import { IconClipboard } from "@/components/icons";
+import { IconClipboard, IconCheck, IconWarning } from "@/components/icons";
 
 const BREAKS: BreakMinutes[] = [0, 20, 30, 45, 60];
 
@@ -203,6 +210,18 @@ function TimesheetForm({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState("");
   const toast = useToast();
 
+  const periods = useMemo(() => listFortnights(), []);
+  const [periodStart, setPeriodStart] = useState(() =>
+    fortnightStartKey(auDateKey(Date.now()))
+  );
+
+  // Are the entered dates inside the chosen working period?
+  const within = useMemo(() => {
+    const s = auDateKey(startMs);
+    const e = auDateKey(endMs);
+    return isWithinFortnight(s, periodStart) && isWithinFortnight(e, periodStart);
+  }, [startMs, endMs, periodStart]);
+
   const total = useMemo(
     () =>
       endMs > startMs ? computeWorkedMinutes(startMs, endMs, breakMin, breakPaid) : 0,
@@ -225,6 +244,7 @@ function TimesheetForm({ onClose }: { onClose: () => void }) {
         endAt: endMs,
         breakMinutes: breakMin,
         breakPaid,
+        periodStart,
       }),
     });
     const data = await res.json();
@@ -258,9 +278,36 @@ function TimesheetForm({ onClose }: { onClose: () => void }) {
             }}
           />
         </Field>
+        <Field label="Working period (fortnight)">
+          <select
+            className="input"
+            value={periodStart}
+            onChange={(e) => setPeriodStart(e.target.value)}
+          >
+            {periods.map((p) => (
+              <option key={p.startKey} value={p.startKey}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+
         <div className="space-y-3">
           <DateTime12 label="Start" value={startMs} onChange={setStartMs} />
           <DateTime12 label="End" value={endMs} onChange={setEndMs} />
+        </div>
+
+        <div
+          className={`rounded-xl px-3 py-2 text-sm flex items-center gap-2 ${
+            within ? "bg-[#e6faf3] text-teal-500" : "bg-warn-soft text-warn"
+          }`}
+        >
+          {within ? <IconCheck size={16} /> : <IconWarning size={16} />}
+          <span>
+            {within
+              ? `Within your ${fortnightLabel(periodStart)} period.`
+              : `These dates fall outside ${fortnightLabel(periodStart)} — pick the right period or adjust the dates.`}
+          </span>
         </div>
 
         <Field label="Break">

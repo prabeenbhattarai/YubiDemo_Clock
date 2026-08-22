@@ -12,10 +12,26 @@ import {
   type ReconRow,
   type ExportEntry,
 } from "@/lib/reconcile";
+import {
+  listFortnights,
+  fortnightStartKey,
+  isWithinFortnight,
+  fortnightLabel,
+} from "@/lib/fortnight";
 import { Spinner, EmptyState } from "@/components/ui";
 import { useToast } from "@/components/toast";
-import { IconClipboard, IconPencil, IconX, IconCheck, IconWarning } from "@/components/icons";
+import { useConfirm } from "@/components/confirm";
+import {
+  IconClipboard,
+  IconPencil,
+  IconX,
+  IconCheck,
+  IconWarning,
+  IconTrash,
+} from "@/components/icons";
 import { EditShift, EditTimesheet } from "@/app/admin/approvals/page";
+
+const ALL = "all";
 
 export default function ReportsPage() {
   const [tab, setTab] = useState<"reconcile" | "export">("reconcile");
@@ -66,11 +82,18 @@ function Reconcile() {
   const { data: shifts, loading: l1 } = useLiveCollection<Shift>("shifts", []);
   const { data: timesheets, loading: l2 } = useLiveCollection<Timesheet>("timesheets", []);
   const toast = useToast();
+  const confirm = useConfirm();
   const [editShift, setEditShift] = useState<Shift | null>(null);
   const [editTs, setEditTs] = useState<Timesheet | null>(null);
   const [dragTsId, setDragTsId] = useState<string | null>(null);
+  const periods = useMemo(() => listFortnights(), []);
+  const [period, setPeriod] = useState(() => fortnightStartKey(new Date().toISOString().slice(0, 10)));
 
-  const rows = useMemo(() => buildReconciliation(shifts, timesheets), [shifts, timesheets]);
+  const allRows = useMemo(() => buildReconciliation(shifts, timesheets), [shifts, timesheets]);
+  const rows = useMemo(
+    () => (period === ALL ? allRows : allRows.filter((r) => isWithinFortnight(r.dateKey, period))),
+    [allRows, period]
+  );
 
   async function link(shiftId: string, timesheetId: string | null) {
     const res = await fetch("/api/admin/reconcile", {
@@ -82,16 +105,58 @@ function Reconcile() {
     else toast.error("Could not update link");
   }
 
-  if ((l1 || l2) && rows.length === 0)
+  async function approveRow(r: ReconRow) {
+    const calls: Promise<Response>[] = [];
+    if (r.shift)
+      calls.push(fetch(`/api/admin/approvals/shift/${r.shift.id}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "approve" }),
+      }));
+    if (r.timesheet)
+      calls.push(fetch(`/api/admin/approvals/timesheet/${r.timesheet.id}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "approve" }),
+      }));
+    const res = await Promise.all(calls);
+    if (res.every((x) => x.ok)) toast.success("Approved");
+    else toast.error("Some items could not be approved");
+  }
+
+  async function del(kind: "shift" | "timesheet", id: string, label: string) {
+    const ok = await confirm({
+      title: `Delete this ${kind}?`,
+      message: `${label} will be permanently removed. This cannot be undone.`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
+    const res = await fetch(`/api/admin/approvals/${kind}/${id}`, { method: "DELETE" });
+    if (res.ok) toast.success(`${kind === "shift" ? "Shift" : "Timesheet"} deleted`);
+    else toast.error("Could not delete");
+  }
+
+  if ((l1 || l2) && allRows.length === 0)
     return <div className="py-12 text-center text-[var(--color-muted)]"><Spinner /></div>;
-  if (rows.length === 0)
-    return <EmptyState icon={<IconClipboard size={22} />} title="Nothing to reconcile yet" />;
 
   return (
     <div>
-      <div className="rounded-lg bg-brand-50 text-brand-700 text-xs px-3 py-2 mb-3">
-        Drag a “No clock-in” timesheet onto a “No timesheet” shift to pair them.
+      <div className="flex flex-wrap items-center gap-3 mb-3">
+        <select className="input max-w-xs" value={period} onChange={(e) => setPeriod(e.target.value)}>
+          <option value={ALL}>All periods</option>
+          {periods.map((p) => (
+            <option key={p.startKey} value={p.startKey}>{p.label}</option>
+          ))}
+        </select>
+        <span className="text-xs text-[var(--color-muted)]">
+          {rows.length} row{rows.length === 1 ? "" : "s"}
+        </span>
       </div>
+      <div className="rounded-lg bg-brand-50 text-brand-700 text-xs px-3 py-2 mb-3">
+        Drag a “No clock-in” timesheet onto a “No timesheet” shift to pair them. Use ✓ to approve a matched row.
+      </div>
+      {rows.length === 0 ? (
+        <EmptyState icon={<IconClipboard size={22} />} title="Nothing in this period" />
+      ) : (
       <div className="card overflow-x-auto">
         <table className="w-full text-sm min-w-[760px]">
           <thead>
@@ -162,24 +227,37 @@ function Reconcile() {
                     </span>
                   </td>
                   <td className="p-3">
-                    <div className="flex items-center gap-1 justify-end">
+                    <div className="flex items-center gap-1 justify-end flex-wrap">
+                      <button className="btn-success px-2 py-1.5 text-xs" onClick={() => approveRow(r)} title="Approve">
+                        <IconCheck size={13} />
+                      </button>
                       {r.shift && (
-                        <button className="btn-ghost px-2 py-1.5 text-xs" onClick={() => setEditShift(r.shift!)}>
+                        <button className="btn-ghost px-2 py-1.5 text-xs" onClick={() => setEditShift(r.shift!)} title="Edit shift">
                           <IconPencil size={13} /> Shift
                         </button>
                       )}
                       {r.timesheet && (
-                        <button className="btn-ghost px-2 py-1.5 text-xs" onClick={() => setEditTs(r.timesheet!)}>
+                        <button className="btn-ghost px-2 py-1.5 text-xs" onClick={() => setEditTs(r.timesheet!)} title="Edit timesheet">
                           <IconPencil size={13} /> TS
                         </button>
                       )}
                       {r.shift && r.timesheet && r.shift.linkedTimesheetId && (
                         <button
-                          className="btn-ghost px-2 py-1.5 text-xs text-[var(--color-danger)]"
+                          className="btn-ghost px-2 py-1.5 text-xs"
                           onClick={() => link(r.shift!.id, null)}
                           title="Unlink"
                         >
                           <IconX size={13} />
+                        </button>
+                      )}
+                      {r.shift && (
+                        <button className="btn-ghost px-2 py-1.5 text-xs text-[var(--color-danger)]" onClick={() => del("shift", r.shift!.id, `Shift · ${r.shift!.siteName}`)} title="Delete shift">
+                          <IconTrash size={13} />
+                        </button>
+                      )}
+                      {r.timesheet && (
+                        <button className="btn-ghost px-2 py-1.5 text-xs text-[var(--color-danger)]" onClick={() => del("timesheet", r.timesheet!.id, `Timesheet · ${r.timesheet!.siteLabel}`)} title="Delete timesheet">
+                          <IconTrash size={13} />
                         </button>
                       )}
                     </div>
@@ -190,6 +268,7 @@ function Reconcile() {
           </tbody>
         </table>
       </div>
+      )}
 
       {editShift && <EditShift shift={editShift} onClose={() => setEditShift(null)} />}
       {editTs && <EditTimesheet ts={editTs} onClose={() => setEditTs(null)} />}
@@ -212,16 +291,19 @@ function SiteExport() {
   const [loc, setLoc] = useState("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const periods = useMemo(() => listFortnights(), []);
+  const [period, setPeriod] = useState(ALL);
 
   const filtered = useMemo(
     () =>
       allEntries.filter(
         (e) =>
           (loc === "all" || e.location === loc) &&
+          (period === ALL || isWithinFortnight(e.dateKey, period)) &&
           (!from || e.dateKey >= from) &&
           (!to || e.dateKey <= to)
       ),
-    [allEntries, loc, from, to]
+    [allEntries, loc, from, to, period]
   );
   const groups = useMemo(() => groupByLocation(filtered), [filtered]);
   const grandTotal = groups.reduce((s, g) => s + g.totalMinutes, 0);
@@ -229,6 +311,15 @@ function SiteExport() {
   return (
     <div>
       <div className="card p-4 mb-4 no-print flex flex-wrap items-end gap-3">
+        <div>
+          <label className="label">Working period</label>
+          <select className="input" value={period} onChange={(e) => setPeriod(e.target.value)}>
+            <option value={ALL}>All periods</option>
+            {periods.map((p) => (
+              <option key={p.startKey} value={p.startKey}>{p.label}</option>
+            ))}
+          </select>
+        </div>
         <div>
           <label className="label">Site</label>
           <select className="input" value={loc} onChange={(e) => setLoc(e.target.value)}>
@@ -259,7 +350,9 @@ function SiteExport() {
       <div className="print-area">
         <div className="hidden print:block mb-4">
           <h2 className="text-xl font-bold">Yubi Demolition — Hours by site</h2>
-          <p className="text-sm">{rangeLabel(from, to)}</p>
+          <p className="text-sm">
+            {period === ALL ? rangeLabel(from, to) : `Fortnight: ${fortnightLabel(period)}`}
+          </p>
         </div>
 
         {groups.length === 0 ? (

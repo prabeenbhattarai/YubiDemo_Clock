@@ -113,16 +113,23 @@ export function ShiftDetailModal({
       title={`${shift.workerName} · shift`}
       footer={<ActionFooter onApprove={approve} onEdit={onEdit} onDelete={del} busy={busy} />}
     >
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
         <StatusPill status={shift.status} />
         <StatusPill status={shift.approvalStatus} />
         {shift.currentlyInside === false && <span className="chip pill-declined">Off-site</span>}
+        {shift.underworked && <span className="chip pill-declined">Under scheduled hours</span>}
       </div>
 
       <div className="card p-3">
         <Row label="Site" value={shift.siteName} />
-        <Row label="Clock-in" value={formatAuDateTime(shift.startedAt)} />
-        <Row label="Clock-out" value={shift.endedAt ? formatAuDateTime(shift.endedAt) : "In progress"} />
+        <Row label="Clock-in (actual)" value={formatAuDateTime(shift.startedAt)} />
+        <Row label="Clock-out (actual)" value={shift.endedAt ? formatAuDateTime(shift.endedAt) : "In progress"} />
+        {shift.payStart != null && shift.payEnd != null && (
+          <Row
+            label="Paid window (rounded)"
+            value={`${formatAuTime(shift.payStart)} – ${formatAuTime(shift.payEnd)}`}
+          />
+        )}
         <Row label="Elapsed" value={shift.durationMinutes != null ? minutesToHhMm(shift.durationMinutes) : "—"} />
         <Row label="Break" value={`${shift.breakMinutes ?? 0} min`} />
         <Row label="Net worked" value={<b>{minutesToHhMm(shiftWorkedMinutes(shift))}</b>} />

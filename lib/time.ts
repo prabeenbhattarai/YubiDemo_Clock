@@ -83,12 +83,19 @@ export function autoBreakMinutes(grossMinutes: number): number {
   return grossMinutes > 240 ? 30 : 0;
 }
 
-/** Net worked minutes for a clock-in shift (gross elapsed minus break). */
+/** Net worked minutes for a clock-in shift (gross elapsed minus break).
+ * When a schedule pay-window is present, that (rounded) window is used. */
 export function shiftWorkedMinutes(shift: {
   durationMinutes?: number;
   breakMinutes?: number;
+  payStart?: number;
+  payEnd?: number;
 }): number {
-  return Math.max(0, (shift.durationMinutes ?? 0) - (shift.breakMinutes ?? 0));
+  const brk = shift.breakMinutes ?? 0;
+  if (shift.payStart != null && shift.payEnd != null) {
+    return Math.max(0, Math.round((shift.payEnd - shift.payStart) / 60000) - brk);
+  }
+  return Math.max(0, (shift.durationMinutes ?? 0) - brk);
 }
 
 /**

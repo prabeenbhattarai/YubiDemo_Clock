@@ -30,6 +30,16 @@ export interface Site {
   country?: string;
   /** Require a photo at clock in / out. */
   photoRequired: boolean;
+
+  /** Standard shift schedule + auto-rounding (all optional). */
+  autoRound?: boolean;
+  /** "HH:MM" scheduled start (e.g. "06:00"). */
+  scheduledStart?: string;
+  /** "HH:MM" scheduled end (e.g. "14:00"). */
+  scheduledEnd?: string;
+  /** Unpaid break minutes applied when rounding (e.g. 30). */
+  scheduledBreakMinutes?: number;
+
   active: boolean;
   createdAt?: number;
   updatedAt?: number;
@@ -94,6 +104,12 @@ export interface Shift {
   durationMinutes?: number;
   /** Auto-applied unpaid break (30 min if shift > 4h); admin can override. */
   breakMinutes?: number;
+
+  /** Effective paid window after schedule rounding (epoch ms). */
+  payStart?: number;
+  payEnd?: number;
+  /** True if the worker started late or left early vs the site schedule. */
+  underworked?: boolean;
 
   /** Manual reconciliation link to a submitted timesheet (set by admin). */
   linkedTimesheetId?: string;

@@ -60,6 +60,11 @@ export async function updateShiftApproval(params: {
     update.startedAt = startedAt;
     update.endedAt = endedAt;
     update.durationMinutes = Math.max(0, Math.round((endedAt - startedAt) / 60000));
+    // Admin override wins: drop any auto-rounded pay window so the edited
+    // actual times are used directly.
+    update.payStart = null;
+    update.payEnd = null;
+    update.underworked = false;
     // Admin can override the break; otherwise leave the existing value.
     if (edit.breakMinutes != null) {
       update.breakMinutes = Math.max(0, Math.round(edit.breakMinutes));

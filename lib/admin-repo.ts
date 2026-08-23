@@ -15,6 +15,10 @@ export interface SiteInput {
   country?: string;
   countryCode?: string;
   photoRequired: boolean;
+  autoRound?: boolean;
+  scheduledStart?: string;
+  scheduledEnd?: string;
+  scheduledBreakMinutes?: number;
   active?: boolean;
 }
 
@@ -25,6 +29,10 @@ function cleanSite(input: SiteInput) {
     location: { lat: Number(input.location.lat), lng: Number(input.location.lng) },
     geofenceType: input.geofenceType,
     photoRequired: !!input.photoRequired,
+    autoRound: !!input.autoRound,
+    scheduledStart: input.autoRound ? input.scheduledStart ?? "06:00" : null,
+    scheduledEnd: input.autoRound ? input.scheduledEnd ?? "14:00" : null,
+    scheduledBreakMinutes: input.autoRound ? input.scheduledBreakMinutes ?? 30 : null,
     active: input.active !== false,
     updatedAt: now(),
   };

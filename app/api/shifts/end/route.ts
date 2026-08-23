@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   const geo = reading ? await checkGeofence(site, reading) : { inside: false, reason: "No location" };
   const address = reading ? (await reverseGeocodeAddress(reading)) ?? undefined : undefined;
 
-  const minutes = await endShift({
+  const { durationMinutes: minutes, underworked, reason } = await endShift({
     shiftId: shift.id,
     worker,
     reading: reading ?? shift.startLocation,
@@ -54,7 +54,17 @@ export async function POST(req: NextRequest) {
     comment: body?.comment,
     inside: geo.inside,
     address,
+    site,
   });
+
+  if (underworked) {
+    await createNotification({
+      type: "out_of_range",
+      message: `${worker.name} ${reason} at ${site.name} (under scheduled hours)`,
+      workerName: worker.name,
+      siteName: site.name,
+    });
+  }
 
   await createNotification({
     type: "clock_out",

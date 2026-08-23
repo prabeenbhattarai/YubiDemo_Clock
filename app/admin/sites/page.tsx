@@ -139,6 +139,10 @@ function SiteForm({ site, onClose }: { site: Site | null; onClose: () => void })
   const [radius, setRadius] = useState(site?.radiusMeters ?? 150);
   const [photoRequired, setPhotoRequired] = useState(site?.photoRequired ?? true);
   const [active, setActive] = useState(site?.active ?? true);
+  const [autoRound, setAutoRound] = useState(site?.autoRound ?? false);
+  const [schedStart, setSchedStart] = useState(site?.scheduledStart ?? "06:00");
+  const [schedEnd, setSchedEnd] = useState(site?.scheduledEnd ?? "14:00");
+  const [schedBreak, setSchedBreak] = useState(site?.scheduledBreakMinutes ?? 30);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const toast = useToast();
@@ -164,6 +168,10 @@ function SiteForm({ site, onClose }: { site: Site | null; onClose: () => void })
       country: place.country,
       countryCode: place.countryCode,
       photoRequired,
+      autoRound,
+      scheduledStart: schedStart,
+      scheduledEnd: schedEnd,
+      scheduledBreakMinutes: Number(schedBreak),
       active,
     };
     const res = await fetch(
@@ -294,6 +302,33 @@ function SiteForm({ site, onClose }: { site: Site | null; onClose: () => void })
           <span className="text-sm font-medium">Require photo at clock in/out</span>
           <Toggle checked={photoRequired} onChange={setPhotoRequired} />
         </label>
+
+        {/* Schedule & auto-rounding */}
+        <div className="border-t border-[var(--color-line)] pt-2">
+          <label className="flex items-center justify-between py-2">
+            <span>
+              <span className="text-sm font-medium block">Auto-round to schedule</span>
+              <span className="text-xs text-[var(--color-muted)]">
+                Cap early starts &amp; late finishes to the shift window; flag late starts / early leaves.
+              </span>
+            </span>
+            <Toggle checked={autoRound} onChange={setAutoRound} />
+          </label>
+          {autoRound && (
+            <div className="grid grid-cols-3 gap-2 mt-1">
+              <Field label="Start">
+                <input type="time" className="input" value={schedStart} onChange={(e) => setSchedStart(e.target.value)} />
+              </Field>
+              <Field label="End">
+                <input type="time" className="input" value={schedEnd} onChange={(e) => setSchedEnd(e.target.value)} />
+              </Field>
+              <Field label="Break (min)">
+                <input type="number" min={0} step={5} className="input" value={schedBreak} onChange={(e) => setSchedBreak(Number(e.target.value))} />
+              </Field>
+            </div>
+          )}
+        </div>
+
         <label className="flex items-center justify-between py-2 border-t border-[var(--color-line)]">
           <span className="text-sm font-medium">Site active</span>
           <Toggle checked={active} onChange={setActive} />

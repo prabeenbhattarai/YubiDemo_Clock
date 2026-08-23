@@ -2,6 +2,7 @@ import "server-only";
 import { adminDb } from "./firebase/admin";
 import { COL, now } from "./repo";
 import { autoBreakMinutes } from "./time";
+import { applySchedule } from "./schedule";
 import type {
   GeoReading,
   HistoryEntry,
@@ -101,8 +102,9 @@ export async function endShift(params: {
   comment?: string;
   inside: boolean;
   address?: string;
+  site?: Site | null;
 }) {
-  const { shiftId, worker, reading, photoUrl, comment, inside, address } = params;
+  const { shiftId, worker, reading, photoUrl, comment, inside, address, site } = params;
   const ref = adminDb.collection(COL.shifts).doc(shiftId);
   const doc = await ref.get();
   if (!doc.exists) throw new Error("Shift not found");
@@ -112,14 +114,28 @@ export async function endShift(params: {
 
   const t = now();
   const durationMinutes = Math.max(0, Math.round((t - data.startedAt) / 60000));
-  const breakMinutes = autoBreakMinutes(durationMinutes);
+
+  // Apply the site's standard schedule (auto-rounding), if configured.
+  const sched = applySchedule(site, data.startedAt, t);
+  const breakMinutes = sched.applied ? sched.breakMinutes : autoBreakMinutes(durationMinutes);
+
   const history: HistoryEntry[] = [
     ...(data.history ?? []),
     { at: t, by: worker.email, action: "Shift ended", note: comment || undefined },
-    ...(breakMinutes > 0
-      ? [{ at: t, by: "system", action: `Auto ${breakMinutes}-min break applied (>4h shift)` }]
-      : []),
   ];
+  if (sched.applied) {
+    history.push({
+      at: t,
+      by: "system",
+      action: `Schedule applied: paid ${site!.scheduledStart}–${site!.scheduledEnd}, ${breakMinutes}-min break`,
+    });
+    if (sched.underworked) {
+      history.push({ at: t, by: "system", action: `Under-worked (${sched.reason})` });
+    }
+  } else if (breakMinutes > 0) {
+    history.push({ at: t, by: "system", action: `Auto ${breakMinutes}-min break applied (>4h shift)` });
+  }
+
   const endPoint = { ...reading, inside };
   const track = [...(data.track ?? []), endPoint].slice(-600);
 
@@ -135,8 +151,11 @@ export async function endShift(params: {
     track,
     durationMinutes,
     breakMinutes,
+    payStart: sched.applied ? sched.payStart! : null,
+    payEnd: sched.applied ? sched.payEnd! : null,
+    underworked: sched.applied ? sched.underworked : false,
     history,
     updatedAt: t,
   });
-  return durationMinutes;
+  return { durationMinutes, underworked: sched.applied && sched.underworked, reason: sched.reason };
 }

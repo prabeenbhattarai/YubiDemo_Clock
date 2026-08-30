@@ -18,6 +18,7 @@ import {
 import Logo from "@/components/logo";
 import GlobalSearch from "@/components/global-search";
 import NotificationsBell from "@/components/notifications-bell";
+import NotificationWatcher from "@/components/notification-watcher";
 
 const NAV = [
   { href: "/admin", label: "Dashboard", Icon: IconDashboard, exact: true },
@@ -81,13 +82,18 @@ export default function AdminShell({
         <span className="bg-white rounded-lg px-2 py-1 inline-flex">
           <Logo height={24} />
         </span>
-        <button
-          onClick={() => setMenuOpen((v) => !v)}
-          className="p-2 -mr-2"
-          aria-label="Menu"
-        >
-          <IconMenu size={24} />
-        </button>
+        <div className="flex items-center gap-1">
+          <div className="text-white">
+            <NotificationsBell />
+          </div>
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="p-2 -mr-2"
+            aria-label="Menu"
+          >
+            <IconMenu size={24} />
+          </button>
+        </div>
       </header>
 
       {menuOpen && (
@@ -119,6 +125,7 @@ export default function AdminShell({
       )}
 
       <div className="flex-1 min-w-0 flex flex-col">
+        <NotificationWatcher />
         {/* Desktop top bar */}
         <header className="hidden md:flex items-center gap-4 h-16 px-8 border-b border-[var(--color-line)] bg-white/70 backdrop-blur sticky top-0 z-20">
           <GlobalSearch />

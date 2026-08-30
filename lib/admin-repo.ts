@@ -75,6 +75,7 @@ export async function listSites(): Promise<Site[]> {
 
 export interface WorkerInput {
   name: string;
+  jobTitle?: string;
   email: string;
   assignedSiteIds: string[];
   active?: boolean;
@@ -91,6 +92,7 @@ export async function createWorker(input: WorkerInput): Promise<string> {
 
   const ref = await adminDb.collection(COL.workers).add({
     name: input.name.trim(),
+    jobTitle: input.jobTitle?.trim() || null,
     email,
     assignedSiteIds: input.assignedSiteIds ?? [],
     active: input.active !== false,
@@ -104,6 +106,7 @@ export async function updateWorker(id: string, input: WorkerInput) {
   await adminDb.collection(COL.workers).doc(id).set(
     {
       name: input.name.trim(),
+      jobTitle: input.jobTitle?.trim() || null,
       email: input.email.trim().toLowerCase(),
       assignedSiteIds: input.assignedSiteIds ?? [],
       active: input.active !== false,

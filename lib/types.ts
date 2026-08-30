@@ -48,6 +48,8 @@ export interface Site {
 export interface Worker {
   id: string;
   name: string;
+  /** Optional role / job title (free text), shown on exports. */
+  jobTitle?: string;
   email: string;
   assignedSiteIds: string[];
   /** Firebase Auth uid, set on first successful login. */

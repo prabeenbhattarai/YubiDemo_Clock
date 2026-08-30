@@ -1,4 +1,4 @@
-import type { Shift, Timesheet } from "./types";
+import type { Shift, Timesheet, Worker } from "./types";
 import { shiftWorkedMinutes } from "./time";
 
 export const AU_TZ = "Australia/Sydney";
@@ -122,9 +122,13 @@ function makeRow(s: Shift, t: Timesheet): ReconRow {
 /* ------------------------------ site export ------------------------------ */
 
 export interface ExportEntry {
+  /** Source document id (shift or timesheet), for edit/delete. */
+  id: string;
   location: string;
   dateKey: string;
   workerName: string;
+  jobTitle?: string;
+  workerUid?: string;
   inMs?: number;
   outMs?: number;
   breakMinutes: number;
@@ -135,15 +139,22 @@ export interface ExportEntry {
 /** Flatten shifts + timesheets into per-site entries for export. */
 export function buildSiteEntries(
   shifts: Shift[],
-  timesheets: Timesheet[]
+  timesheets: Timesheet[],
+  workers: Worker[] = []
 ): ExportEntry[] {
+  const titleByUid = new Map<string, string>();
+  for (const w of workers) if (w.uid && w.jobTitle) titleByUid.set(w.uid, w.jobTitle);
+
   const out: ExportEntry[] = [];
   for (const s of shifts) {
     if (s.status !== "completed") continue;
     out.push({
+      id: s.id,
       location: s.siteName,
       dateKey: auDateKey(s.startedAt),
       workerName: s.workerName,
+      jobTitle: s.workerUid ? titleByUid.get(s.workerUid) : undefined,
+      workerUid: s.workerUid,
       inMs: s.payStart ?? s.startedAt,
       outMs: s.payEnd ?? s.endedAt,
       breakMinutes: s.breakMinutes ?? 0,
@@ -153,9 +164,12 @@ export function buildSiteEntries(
   }
   for (const t of timesheets) {
     out.push({
+      id: t.id,
       location: t.siteLabel,
       dateKey: auDateKey(t.startAt),
       workerName: t.workerName,
+      jobTitle: t.workerUid ? titleByUid.get(t.workerUid) : undefined,
+      workerUid: t.workerUid,
       inMs: t.adminStartAt ?? t.startAt,
       outMs: t.adminEndAt ?? t.endAt,
       breakMinutes: t.adminBreakMinutes ?? t.breakMinutes ?? 0,

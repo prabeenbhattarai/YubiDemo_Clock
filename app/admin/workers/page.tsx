@@ -127,6 +127,7 @@ function WorkerForm({
 }) {
   const isEdit = !!worker;
   const [name, setName] = useState(worker?.name ?? "");
+  const [jobTitle, setJobTitle] = useState(worker?.jobTitle ?? "");
   const [email, setEmail] = useState(worker?.email ?? "");
   const [assigned, setAssigned] = useState<string[]>(worker?.assignedSiteIds ?? []);
   const [active, setActive] = useState(worker?.active ?? true);
@@ -146,7 +147,7 @@ function WorkerForm({
     if (!name.trim()) return setError("Name is required.");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError("Enter a valid email.");
     setSaving(true);
-    const body = { name, email, assignedSiteIds: assigned, active };
+    const body = { name, jobTitle, email, assignedSiteIds: assigned, active };
     const res = await fetch(
       isEdit ? `/api/admin/workers/${worker!.id}` : "/api/admin/workers",
       {
@@ -211,6 +212,14 @@ function WorkerForm({
             placeholder="Jane Smith"
             value={name}
             onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+        <Field label="Job title" hint="Optional — appears on hour exports.">
+          <input
+            className="input"
+            placeholder="e.g. Labourer, Machine operator"
+            value={jobTitle}
+            onChange={(e) => setJobTitle(e.target.value)}
           />
         </Field>
         <Field label="Email" hint="They sign in with this email via a one-time code.">

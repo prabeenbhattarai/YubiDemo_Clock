@@ -192,13 +192,13 @@ function WeeklyBars({ data }: { data: number[] }) {
   const max = Math.max(1, ...data);
   const peak = data.indexOf(max);
   return (
-    <div className="flex items-end justify-between gap-2 h-40">
+    <div className="flex items-stretch justify-between gap-2 h-40">
       {data.map((v, i) => {
         const h = Math.max(6, Math.round((v / max) * 100));
         const isPeak = i === peak && v > 0;
         return (
           <div key={i} className="flex-1 flex flex-col items-center gap-2">
-            <div className="w-full flex items-end justify-center h-full">
+            <div className="w-full flex-1 min-h-0 flex items-end justify-center">
               <div
                 className={`w-full max-w-9 rounded-full transition-all ${
                   v === 0

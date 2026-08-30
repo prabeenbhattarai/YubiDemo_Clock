@@ -18,7 +18,9 @@ export default function NotificationWatcher() {
     limit(10),
   ]);
   const toast = useToast();
-  const seenAt = useRef<number | null>(null);
+  // Baseline at mount time: only notifications that arrive AFTER the panel is
+  // open should pop (existing ones are history). Works even from an empty collection.
+  const seenAt = useRef<number>(Date.now());
 
   // Unlock/resume audio on any user interaction (autoplay policy).
   useEffect(() => {
@@ -34,12 +36,8 @@ export default function NotificationWatcher() {
   useEffect(() => {
     if (data.length === 0) return;
     const newest = data[0].at;
-    if (seenAt.current === null) {
-      seenAt.current = newest; // first load — don't announce history
-      return;
-    }
     if (newest > seenAt.current) {
-      const fresh = data.filter((n) => n.at > (seenAt.current as number));
+      const fresh = data.filter((n) => n.at > seenAt.current);
       seenAt.current = newest;
       if (!isMuted()) playChime();
       toast.info(

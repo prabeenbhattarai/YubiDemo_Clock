@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { orderBy, limit, useLiveCollection } from "@/lib/live";
-import type { AppNotification } from "@/lib/types";
+import { useNotifications } from "@/components/notifications-provider";
 import { ensureAudio, isMuted, setMuted } from "@/lib/notif-sound";
 import {
   IconBell,
@@ -30,32 +29,28 @@ const ICON = {
 } as const;
 
 export default function NotificationsBell() {
-  const { data } = useLiveCollection<AppNotification>("notifications", [
-    orderBy("at", "desc"),
-    limit(30),
-  ]);
+  const { items, unread, markAllRead } = useNotifications();
   const [open, setOpen] = useState(false);
   const [muted, setMutedState] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
-  const unread = data.filter((n) => !n.read).length;
 
   useEffect(() => setMutedState(isMuted()), []);
 
   useEffect(() => {
     if (!open) return;
-    fetch("/api/admin/notifications/read", { method: "POST" }).catch(() => {});
+    markAllRead();
     const onClick = (e: MouseEvent) => {
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
-  }, [open]);
+  }, [open, markAllRead]);
 
   function toggleMute() {
     const next = !muted;
     setMuted(next);
     setMutedState(next);
-    if (!next) ensureAudio(); // unlock audio when turning sound on
+    if (!next) ensureAudio();
   }
 
   return (
@@ -76,7 +71,7 @@ export default function NotificationsBell() {
       {open && (
         <div className="absolute right-0 mt-2 w-80 max-w-[90vw] bg-white rounded-xl border border-[var(--color-line)] shadow-xl z-50 overflow-hidden animate-in">
           <div className="px-4 py-3 border-b border-[var(--color-line)] flex items-center justify-between">
-            <span className="font-semibold text-sm">Notifications</span>
+            <span className="font-semibold text-sm text-[var(--color-ink)]">Notifications</span>
             <button
               onClick={toggleMute}
               className="text-xs font-medium text-[var(--color-muted)] hover:text-brand-600"
@@ -86,12 +81,12 @@ export default function NotificationsBell() {
             </button>
           </div>
           <div className="max-h-96 overflow-y-auto">
-            {data.length === 0 ? (
+            {items.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-[var(--color-muted)]">
                 No notifications yet.
               </div>
             ) : (
-              data.map((n) => {
+              items.map((n) => {
                 const icon = ICON[n.type] ?? ICON.timesheet;
                 return (
                   <div
@@ -112,14 +107,6 @@ export default function NotificationsBell() {
               })
             )}
           </div>
-          {unread > 0 && (
-            <button
-              onClick={() => fetch("/api/admin/notifications/read", { method: "POST" }).catch(() => {})}
-              className="w-full px-4 py-2.5 text-xs font-medium text-brand-600 hover:bg-brand-50 border-t border-[var(--color-line)]"
-            >
-              Mark all as read
-            </button>
-          )}
         </div>
       )}
     </div>

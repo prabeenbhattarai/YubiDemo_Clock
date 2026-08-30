@@ -18,7 +18,7 @@ import {
 import Logo from "@/components/logo";
 import GlobalSearch from "@/components/global-search";
 import NotificationsBell from "@/components/notifications-bell";
-import NotificationWatcher from "@/components/notification-watcher";
+import { NotificationsProvider } from "@/components/notifications-provider";
 
 const NAV = [
   { href: "/admin", label: "Dashboard", Icon: IconDashboard, exact: true },
@@ -54,6 +54,7 @@ export default function AdminShell({
     exact ? pathname === href : pathname.startsWith(href);
 
   return (
+    <NotificationsProvider>
     <div className="min-h-dvh md:flex bg-[var(--color-canvas)]">
       {/* Sidebar (desktop) */}
       <aside className="hidden md:flex md:flex-col w-64 shrink-0 bg-ink text-white">
@@ -125,7 +126,6 @@ export default function AdminShell({
       )}
 
       <div className="flex-1 min-w-0 flex flex-col">
-        <NotificationWatcher />
         {/* Desktop top bar */}
         <header className="hidden md:flex items-center gap-4 h-16 px-8 border-b border-[var(--color-line)] bg-white/70 backdrop-blur sticky top-0 z-20">
           <GlobalSearch />
@@ -156,6 +156,7 @@ export default function AdminShell({
         <main className="max-w-5xl mx-auto w-full p-4 md:p-8 pb-16">{children}</main>
       </div>
     </div>
+    </NotificationsProvider>
   );
 }
 

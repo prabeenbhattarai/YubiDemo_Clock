@@ -36,3 +36,13 @@ export async function markAllNotificationsRead() {
   snap.docs.forEach((d) => batch.update(d.ref, { read: true }));
   await batch.commit();
 }
+
+/** List recent notifications (server-side; bypasses client Firestore rules). */
+export async function listRecentNotifications(max = 30) {
+  const snap = await adminDb
+    .collection(COL.notifications)
+    .orderBy("at", "desc")
+    .limit(max)
+    .get();
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }));
+}

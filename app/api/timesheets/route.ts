@@ -8,8 +8,6 @@ import {
 } from "@/lib/timesheet-repo";
 import { createNotification } from "@/lib/notify";
 
-const ALLOWED_BREAKS = [0, 20, 30, 45, 60];
-
 export async function GET() {
   const auth = await requireUser("worker");
   if ("error" in auth) return auth.error;
@@ -33,8 +31,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Start and end times are required." }, { status: 400 });
   if (body.endAt <= body.startAt)
     return NextResponse.json({ error: "End time must be after start time." }, { status: 400 });
-  if (!ALLOWED_BREAKS.includes(Number(body.breakMinutes)))
-    return NextResponse.json({ error: "Invalid break selection." }, { status: 400 });
+  const brk = Number(body.breakMinutes);
+  if (!Number.isFinite(brk) || brk < 0 || brk > 600)
+    return NextResponse.json({ error: "Break must be 0–600 minutes." }, { status: 400 });
 
   const id = await createTimesheet(worker, body);
   await createNotification({

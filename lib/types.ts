@@ -122,7 +122,8 @@ export interface Shift {
   updatedAt?: number;
 }
 
-export type BreakMinutes = 0 | 20 | 30 | 45 | 60;
+/** Break length in minutes. Free-form (0–600); presets are just conveniences. */
+export type BreakMinutes = number;
 
 export type ApprovalStatus =
   | "pending"

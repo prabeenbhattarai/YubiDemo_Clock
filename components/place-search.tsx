@@ -13,10 +13,12 @@ export default function PlaceSearch({
   defaultValue,
   onChange,
   placeholder = "Search a place or address…",
+  className = "input",
 }: {
   defaultValue?: string;
   onChange: (place: ResolvedPlace | { address: string }) => void;
   placeholder?: string;
+  className?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -55,7 +57,7 @@ export default function PlaceSearch({
   return (
     <input
       ref={inputRef}
-      className="input"
+      className={className}
       placeholder={placeholder}
       defaultValue={defaultValue}
       onChange={(e) => onChange({ address: e.target.value })}

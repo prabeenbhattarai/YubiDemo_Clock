@@ -4,93 +4,40 @@ import { useEffect, useMemo, useState } from "react";
 import { useCurrentUid, useLiveCollection, where } from "@/lib/live";
 import type { BreakMinutes, Timesheet } from "@/lib/types";
 import { computeWorkedMinutes, formatAuDateTime, minutesToHhMm } from "@/lib/time";
-import { auDateKey } from "@/lib/reconcile";
 import {
   listFortnights,
   fortnightStartKey,
-  isWithinFortnight,
-  fortnightLabel,
+  addDaysKey,
 } from "@/lib/fortnight";
-import { StatusPill, Spinner, Field, EmptyState } from "@/components/ui";
+import { auDateKey } from "@/lib/reconcile";
+import { StatusPill, Spinner, EmptyState } from "@/components/ui";
 import PlaceSearch from "@/components/place-search";
 import { Toggle } from "@/app/admin/sites/page";
 import { useToast } from "@/components/toast";
-import { IconClipboard, IconCheck, IconWarning } from "@/components/icons";
+import { IconClipboard, IconWarning } from "@/components/icons";
 
 const BREAKS: BreakMinutes[] = [0, 20, 30, 45, 60];
 
-const pad2 = (n: number) => String(n).padStart(2, "0");
-const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5); // 0,5,…,55
+/** Short label for a fortnight day key, e.g. "Mon 18 Aug". */
+function dayLabel(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone: "UTC",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  }).format(new Date(Date.UTC(y, m - 1, d)));
+}
 
-/** Date + 12-hour time picker with explicit AM/PM. Emits epoch ms. */
-function DateTime12({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (ms: number) => void;
-}) {
-  const d = new Date(value);
-  const dateStr = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-  const h24 = d.getHours();
-  const ampm: "AM" | "PM" = h24 >= 12 ? "PM" : "AM";
-  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-  const minute = d.getMinutes();
+/** Epoch ms for a local calendar day + minutes-since-midnight. */
+function atTime(dayKey: string, minutes: number): number {
+  const [y, m, d] = dayKey.split("-").map(Number);
+  return new Date(y, m - 1, d, Math.floor(minutes / 60), minutes % 60, 0, 0).getTime();
+}
 
-  function build(ds: string, hh12: number, mm: number, ap: "AM" | "PM") {
-    let hh = hh12 % 12;
-    if (ap === "PM") hh += 12;
-    const [y, m, day] = ds.split("-").map(Number);
-    return new Date(y, m - 1, day, hh, mm, 0, 0).getTime();
-  }
-
-  const selectCls =
-    "input px-2 py-3 text-sm appearance-none bg-white text-center";
-
-  return (
-    <div>
-      <label className="label">{label}</label>
-      <div className="flex gap-2">
-        <input
-          type="date"
-          className="input flex-1 min-w-0"
-          value={dateStr}
-          onChange={(e) => onChange(build(e.target.value, h12, minute, ampm))}
-        />
-        <select
-          className={selectCls}
-          value={h12}
-          onChange={(e) => onChange(build(dateStr, Number(e.target.value), minute, ampm))}
-          aria-label={`${label} hour`}
-        >
-          {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
-            <option key={h} value={h}>{h}</option>
-          ))}
-        </select>
-        <select
-          className={selectCls}
-          value={MINUTES.includes(minute) ? minute : minute}
-          onChange={(e) => onChange(build(dateStr, h12, Number(e.target.value), ampm))}
-          aria-label={`${label} minute`}
-        >
-          {(MINUTES.includes(minute) ? MINUTES : [...MINUTES, minute].sort((a, b) => a - b)).map((m) => (
-            <option key={m} value={m}>{pad2(m)}</option>
-          ))}
-        </select>
-        <select
-          className={selectCls}
-          value={ampm}
-          onChange={(e) => onChange(build(dateStr, h12, minute, e.target.value as "AM" | "PM"))}
-          aria-label={`${label} AM or PM`}
-        >
-          <option value="AM">AM</option>
-          <option value="PM">PM</option>
-        </select>
-      </div>
-    </div>
-  );
+/** Decimal hours from minutes, 2dp (so 150 → 2.5). */
+function decimalHours(mins: number): number {
+  return Math.round((mins / 60) * 100) / 100;
 }
 
 export default function TimesheetPage() {
@@ -122,23 +69,23 @@ export default function TimesheetPage() {
         <div className="pt-4 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold">Timesheets</h1>
-            <p className="text-sm text-[var(--color-muted)]">Add hours for any location.</p>
+            <p className="text-sm text-[var(--color-muted)]">Fill your fortnight, all days at once.</p>
           </div>
-          <button className="btn-ocean" onClick={() => setOpen(true)}>
-            + Add
+          <button className="btn-ocean" onClick={() => setOpen((v) => !v)}>
+            {open ? "Close" : "Fill fortnight"}
           </button>
         </div>
       </header>
 
       <main className="px-5 py-4">
-        {open && <TimesheetForm onClose={() => setOpen(false)} />}
+        {open && <FortnightGrid onDone={() => setOpen(false)} />}
 
         {loading && !uid ? (
           <div className="py-12 text-center text-[var(--color-muted)]">
             <Spinner />
           </div>
         ) : sorted.length === 0 ? (
-          <EmptyState icon={<IconClipboard size={22} />} title="No timesheets yet" subtitle="Tap “Add” to log hours." />
+          <EmptyState icon={<IconClipboard size={22} />} title="No timesheets yet" subtitle="Tap “Fill fortnight” to log hours." />
         ) : (
           <div className="space-y-3 mt-2">
             {sorted.map((ts) => (
@@ -196,156 +143,316 @@ function TimesheetCard({ ts }: { ts: Timesheet }) {
   );
 }
 
-function TimesheetForm({ onClose }: { onClose: () => void }) {
-  const nowD = new Date();
-  const [label, setLabel] = useState("");
-  const [placeAddress, setPlaceAddress] = useState<string | undefined>();
-  const [location, setLocation] = useState<{ lat: number; lng: number } | undefined>();
-  const round5 = (ms: number) => Math.round(ms / 300000) * 300000;
-  const [startMs, setStartMs] = useState(round5(nowD.getTime() - 8 * 3600000));
-  const [endMs, setEndMs] = useState(round5(nowD.getTime()));
-  const [breakMin, setBreakMin] = useState<BreakMinutes>(30);
-  const [breakPaid, setBreakPaid] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const toast = useToast();
+// ---------------------------------------------------------------------------
+//  Fortnight grid: 14 day rows filled at once. Each filled day is submitted as
+//  its own timesheet entry (reusing POST /api/timesheets), so admin approval,
+//  reconciliation and exports keep working unchanged.
+// ---------------------------------------------------------------------------
 
+interface Row {
+  dayKey: string;
+  loc: string;
+  lat?: number;
+  lng?: number;
+  start: number | null; // minutes since midnight
+  end: number | null;
+  brk: BreakMinutes;
+}
+
+function buildRows(startKey: string): Row[] {
+  return Array.from({ length: 14 }, (_, i) => ({
+    dayKey: addDaysKey(startKey, i),
+    loc: "",
+    start: null,
+    end: null,
+    brk: 0 as BreakMinutes,
+  }));
+}
+
+/** Minutes worked for a row (supports an end past midnight). 0 if incomplete. */
+function rowMinutes(r: Row, breakPaid: boolean): number {
+  if (r.start == null || r.end == null) return 0;
+  const startAt = atTime(r.dayKey, r.start);
+  const endAt = r.end > r.start ? atTime(r.dayKey, r.end) : atTime(addDaysKey(r.dayKey, 1), r.end);
+  return computeWorkedMinutes(startAt, endAt, r.brk, breakPaid);
+}
+
+function FortnightGrid({ onDone }: { onDone: () => void }) {
   const periods = useMemo(() => listFortnights(), []);
   const [periodStart, setPeriodStart] = useState(() =>
     fortnightStartKey(auDateKey(Date.now()))
   );
+  const [rows, setRows] = useState<Row[]>(() => buildRows(periodStart));
+  const [breakPaid, setBreakPaid] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [error, setError] = useState("");
+  const toast = useToast();
 
-  // Are the entered dates inside the chosen working period?
-  const within = useMemo(() => {
-    const s = auDateKey(startMs);
-    const e = auDateKey(endMs);
-    return isWithinFortnight(s, periodStart) && isWithinFortnight(e, periodStart);
-  }, [startMs, endMs, periodStart]);
+  function changePeriod(next: string) {
+    setPeriodStart(next);
+    // Re-date rows to the new fortnight, keeping any values already entered.
+    setRows((prev) => prev.map((r, i) => ({ ...r, dayKey: addDaysKey(next, i) })));
+  }
 
-  const total = useMemo(
-    () =>
-      endMs > startMs ? computeWorkedMinutes(startMs, endMs, breakMin, breakPaid) : 0,
-    [startMs, endMs, breakMin, breakPaid]
-  );
+  function update(i: number, patch: Partial<Row>) {
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+
+  const perDay = useMemo(() => rows.map((r) => rowMinutes(r, breakPaid)), [rows, breakPaid]);
+  const filledCount = perDay.filter((m) => m > 0).length;
+  const totalMinutes = perDay.reduce((s, m) => s + m, 0);
 
   async function submit() {
     setError("");
-    if (!label.trim()) return setError("Enter a location.");
-    if (!(endMs > startMs)) return setError("End must be after start.");
-    setSaving(true);
-    const res = await fetch("/api/timesheets", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        siteLabel: label,
-        placeAddress,
-        location,
-        startAt: startMs,
-        endAt: endMs,
-        breakMinutes: breakMin,
-        breakPaid,
-        periodStart,
-      }),
-    });
-    const data = await res.json();
-    setSaving(false);
-    if (!res.ok) {
-      setError(data.error || "Could not submit.");
-      toast.error("Couldn't submit timesheet", data.error);
+
+    // A day counts as "to submit" if it has both times entered.
+    const toSubmit = rows.filter((r) => r.start != null && r.end != null);
+    if (toSubmit.length === 0) {
+      setError("Enter start and end times for at least one day.");
       return;
     }
-    toast.success("Timesheet submitted", "Sent to your admin for approval.");
-    onClose();
+    const missingLoc = toSubmit.filter((r) => !r.loc.trim()).map((r) => dayLabel(r.dayKey));
+    if (missingLoc.length > 0) {
+      setError(`Add a location for: ${missingLoc.join(", ")}.`);
+      return;
+    }
+
+    setSaving(true);
+    setProgress({ done: 0, total: toSubmit.length });
+    const failures: string[] = [];
+
+    for (let i = 0; i < toSubmit.length; i++) {
+      const r = toSubmit[i];
+      const startAt = atTime(r.dayKey, r.start!);
+      const endAt = r.end! > r.start! ? atTime(r.dayKey, r.end!) : atTime(addDaysKey(r.dayKey, 1), r.end!);
+      try {
+        const res = await fetch("/api/timesheets", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            siteLabel: r.loc.trim(),
+            placeAddress: r.loc.trim(),
+            location: r.lat != null && r.lng != null ? { lat: r.lat, lng: r.lng } : undefined,
+            startAt,
+            endAt,
+            breakMinutes: r.brk,
+            breakPaid,
+            periodStart,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          failures.push(`${dayLabel(r.dayKey)}: ${data.error || "failed"}`);
+        }
+      } catch {
+        failures.push(`${dayLabel(r.dayKey)}: network error`);
+      }
+      setProgress({ done: i + 1, total: toSubmit.length });
+    }
+
+    setSaving(false);
+    setProgress(null);
+
+    if (failures.length > 0) {
+      setError(failures.join(" · "));
+      toast.error("Some days didn’t submit", `${failures.length} of ${toSubmit.length} failed.`);
+      return;
+    }
+    toast.success(
+      "Fortnight submitted",
+      `${toSubmit.length} day${toSubmit.length === 1 ? "" : "s"} sent for approval.`
+    );
+    onDone();
   }
 
   return (
     <div className="card p-4 mb-4">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="font-semibold">New timesheet</h2>
-        <button onClick={onClose} className="text-[var(--color-muted)] text-sm">
+        <h2 className="font-semibold">Fill fortnight</h2>
+        <button onClick={onDone} className="text-[var(--color-muted)] text-sm">
           Cancel
         </button>
       </div>
-      <div className="space-y-3">
-        <Field label="Location / site">
-          <PlaceSearch
-            onChange={(p) => {
-              setLabel(p.address);
-              if ("lat" in p) {
-                setLocation({ lat: p.lat, lng: p.lng });
-                setPlaceAddress(p.address);
-              }
-            }}
+
+      <label className="label">Working period (fortnight)</label>
+      <select
+        className="input mb-3"
+        value={periodStart}
+        onChange={(e) => changePeriod(e.target.value)}
+      >
+        {periods.map((p) => (
+          <option key={p.startKey} value={p.startKey}>
+            {p.label}
+          </option>
+        ))}
+      </select>
+
+      <div className="flex items-center justify-between rounded-xl bg-[var(--color-canvas)] px-3 py-2 mb-3">
+        <span className="text-sm">Breaks are {breakPaid ? "paid" : "unpaid"}</span>
+        <Toggle checked={breakPaid} onChange={setBreakPaid} />
+      </div>
+
+      <div className="space-y-2.5">
+        {rows.map((r, i) => (
+          <DayRow
+            key={r.dayKey}
+            row={r}
+            minutes={perDay[i]}
+            onChange={(patch) => update(i, patch)}
           />
-        </Field>
-        <Field label="Working period (fortnight)">
-          <select
-            className="input"
-            value={periodStart}
-            onChange={(e) => setPeriodStart(e.target.value)}
-          >
-            {periods.map((p) => (
-              <option key={p.startKey} value={p.startKey}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </Field>
+        ))}
+      </div>
 
-        <div className="space-y-3">
-          <DateTime12 label="Start" value={startMs} onChange={setStartMs} />
-          <DateTime12 label="End" value={endMs} onChange={setEndMs} />
-        </div>
-
-        <div
-          className={`rounded-xl px-3 py-2 text-sm flex items-center gap-2 ${
-            within ? "bg-[#e6faf3] text-teal-500" : "bg-warn-soft text-warn"
-          }`}
-        >
-          {within ? <IconCheck size={16} /> : <IconWarning size={16} />}
-          <span>
-            {within
-              ? `Within your ${fortnightLabel(periodStart)} period.`
-              : `These dates fall outside ${fortnightLabel(periodStart)} — pick the right period or adjust the dates.`}
+      <div className="sticky bottom-0 mt-4 -mx-4 -mb-4 rounded-b-xl border-t border-[var(--color-line)] bg-white px-4 py-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm text-[var(--color-muted)]">{filledCount} of 14 days</span>
+          <span className="text-base font-bold">
+            {minutesToHhMm(totalMinutes)} · {decimalHours(totalMinutes)}h
           </span>
         </div>
 
-        <Field label="Break">
-          <div className="grid grid-cols-5 gap-1.5">
-            {BREAKS.map((b) => (
-              <button
-                key={b}
-                type="button"
-                onClick={() => setBreakMin(b)}
-                className={`rounded-lg border py-2 text-xs font-medium ${
-                  breakMin === b
-                    ? "border-ocean-500 bg-ocean-50 text-ocean-700"
-                    : "border-[var(--color-line)] text-[var(--color-ink-soft)]"
-                }`}
-              >
-                {b === 0 ? "None" : `${b}m`}
-              </button>
-            ))}
-          </div>
-        </Field>
+        {error && (
+          <p className="mb-2 flex items-start gap-1.5 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
+            <IconWarning size={14} />
+            <span>{error}</span>
+          </p>
+        )}
 
-        <label className="flex items-center justify-between py-1">
-          <span className="text-sm font-medium">
-            Break is {breakPaid ? "paid" : "unpaid"}
-          </span>
-          <Toggle checked={breakPaid} onChange={setBreakPaid} />
-        </label>
-
-        <div className="rounded-xl bg-[var(--color-canvas)] px-4 py-3 flex items-center justify-between">
-          <span className="text-sm text-[var(--color-muted)]">Total worked</span>
-          <span className="text-lg font-bold">{minutesToHhMm(total)}</span>
-        </div>
-
-        {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
-        <button className="btn-ocean w-full" onClick={submit} disabled={saving}>
-          {saving ? <Spinner /> : "Submit for approval"}
+        <button className="btn-ocean w-full" onClick={submit} disabled={saving || filledCount === 0}>
+          {saving && progress
+            ? `Submitting ${progress.done}/${progress.total}…`
+            : `Submit ${filledCount || ""} day${filledCount === 1 ? "" : "s"}`.trim()}
         </button>
       </div>
+    </div>
+  );
+}
+
+function DayRow({
+  row,
+  minutes,
+  onChange,
+}: {
+  row: Row;
+  minutes: number;
+  onChange: (patch: Partial<Row>) => void;
+}) {
+  const worked = minutes > 0;
+  return (
+    <div
+      className={`rounded-xl border p-2.5 ${
+        worked ? "border-ocean-300 bg-ocean-50/40" : "border-[var(--color-line)]"
+      }`}
+    >
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-sm font-semibold">{dayLabel(row.dayKey)}</span>
+        <span className={`text-sm font-semibold ${worked ? "text-ocean-700" : "text-[var(--color-muted)]"}`}>
+          {worked ? `${minutesToHhMm(minutes)} · ${decimalHours(minutes)}h` : "—"}
+        </span>
+      </div>
+
+      <div className="mb-1.5">
+        <PlaceSearch
+          placeholder="Location / site…"
+          onChange={(p) =>
+            onChange({
+              loc: p.address,
+              lat: "lat" in p ? p.lat : undefined,
+              lng: "lat" in p ? p.lng : undefined,
+            })
+          }
+        />
+      </div>
+
+      <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+        <Time12 ariaLabel={`${dayLabel(row.dayKey)} start`} value={row.start} onChange={(v) => onChange({ start: v })} />
+        <Time12 ariaLabel={`${dayLabel(row.dayKey)} end`} value={row.end} onChange={(v) => onChange({ end: v })} />
+        <select
+          className="input px-2 py-3 text-sm appearance-none bg-white text-center"
+          value={row.brk}
+          onChange={(e) => onChange({ brk: Number(e.target.value) as BreakMinutes })}
+          aria-label={`${dayLabel(row.dayKey)} break`}
+        >
+          {BREAKS.map((b) => (
+            <option key={b} value={b}>
+              {b}m
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+const MINUTE_OPTS = Array.from({ length: 12 }, (_, i) => i * 5); // 0,5,…,55
+
+/** Time-of-day picker (12h with AM/PM). Emits minutes-since-midnight or null. */
+function Time12({
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  value: number | null;
+  onChange: (minutes: number | null) => void;
+  ariaLabel: string;
+}) {
+  const has = value != null;
+  const h24 = has ? Math.floor(value! / 60) : 0;
+  const min = has ? value! % 60 : 0;
+  const ap: "AM" | "PM" = h24 >= 12 ? "PM" : "AM";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+
+  function build(nh12: number, nmin: number, nap: "AM" | "PM") {
+    let hh = nh12 % 12;
+    if (nap === "PM") hh += 12;
+    onChange(hh * 60 + nmin);
+  }
+
+  const cls = "input px-1.5 py-3 text-sm appearance-none bg-white text-center min-w-0";
+
+  return (
+    <div className="flex gap-1">
+      <select
+        className={cls}
+        value={has ? h12 : 0}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          if (v === 0) onChange(null);
+          else build(v, has ? min : 0, has ? ap : "AM");
+        }}
+        aria-label={`${ariaLabel} hour`}
+      >
+        <option value={0}>–</option>
+        {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
+          <option key={h} value={h}>
+            {h}
+          </option>
+        ))}
+      </select>
+      <select
+        className={cls}
+        value={min}
+        disabled={!has}
+        onChange={(e) => build(h12, Number(e.target.value), ap)}
+        aria-label={`${ariaLabel} minute`}
+      >
+        {(MINUTE_OPTS.includes(min) ? MINUTE_OPTS : [...MINUTE_OPTS, min].sort((a, b) => a - b)).map((m) => (
+          <option key={m} value={m}>
+            {String(m).padStart(2, "0")}
+          </option>
+        ))}
+      </select>
+      <select
+        className={cls}
+        value={ap}
+        disabled={!has}
+        onChange={(e) => build(h12, min, e.target.value as "AM" | "PM")}
+        aria-label={`${ariaLabel} AM or PM`}
+      >
+        <option value="AM">AM</option>
+        <option value="PM">PM</option>
+      </select>
     </div>
   );
 }

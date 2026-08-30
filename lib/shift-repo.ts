@@ -159,3 +159,43 @@ export async function endShift(params: {
   });
   return { durationMinutes, underworked: sched.applied && sched.underworked, reason: sched.reason };
 }
+
+/**
+ * Force-end an active shift as an admin (e.g. a worker forgot to sign out).
+ * Mirrors endShift's finalisation but stamps it as an admin action and uses the
+ * last known location instead of a fresh reading.
+ */
+export async function adminEndShift(shiftId: string, by: string) {
+  const ref = adminDb.collection(COL.shifts).doc(shiftId);
+  const doc = await ref.get();
+  if (!doc.exists) throw new Error("Shift not found");
+  const data = doc.data() as Shift;
+  if (data.status !== "active") throw new Error("Shift already ended");
+
+  const t = now();
+  const durationMinutes = Math.max(0, Math.round((t - data.startedAt) / 60000));
+  const site = await getSite(data.siteId);
+  const sched = applySchedule(site, data.startedAt, t);
+  const breakMinutes = sched.applied ? sched.breakMinutes : autoBreakMinutes(durationMinutes);
+  const lastLoc = data.lastPing ?? data.startLocation ?? null;
+
+  const history: HistoryEntry[] = [
+    ...(data.history ?? []),
+    { at: t, by, action: "Shift ended by admin (forgotten sign-out)" },
+  ];
+
+  await ref.update({
+    status: "completed",
+    endedAt: t,
+    endLocation: lastLoc,
+    endAddress: data.startAddress ?? null,
+    durationMinutes,
+    breakMinutes,
+    payStart: sched.applied ? sched.payStart! : null,
+    payEnd: sched.applied ? sched.payEnd! : null,
+    underworked: sched.applied ? sched.underworked : false,
+    history,
+    updatedAt: t,
+  });
+  return { durationMinutes };
+}

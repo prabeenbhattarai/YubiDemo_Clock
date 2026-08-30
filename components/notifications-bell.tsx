@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { orderBy, limit, useLiveCollection } from "@/lib/live";
 import type { AppNotification } from "@/lib/types";
+import { useToast } from "@/components/toast";
 import {
   IconBell,
   IconPlay,
@@ -28,18 +29,82 @@ const ICON = {
   timesheet: { el: <IconClipboard size={15} />, cls: "bg-brand-50 text-brand-600" },
 } as const;
 
+// --- Notification chime (Web Audio; no asset file needed) ------------------
+let audioCtx: AudioContext | null = null;
+function ensureAudio() {
+  try {
+    if (!audioCtx) {
+      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (Ctx) audioCtx = new Ctx();
+    }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+  } catch {
+    /* audio unavailable */
+  }
+}
+function tone(freq: number, start: number, dur: number) {
+  if (!audioCtx) return;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = "sine";
+  o.frequency.value = freq;
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  const t = audioCtx.currentTime + start;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.16, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.start(t);
+  o.stop(t + dur + 0.02);
+}
+function playChime() {
+  ensureAudio();
+  if (!audioCtx) return;
+  tone(880, 0, 0.32); // A5
+  tone(1174.7, 0.13, 0.42); // D6
+}
+
 export default function NotificationsBell() {
   const { data } = useLiveCollection<AppNotification>("notifications", [
     orderBy("at", "desc"),
     limit(30),
   ]);
   const [open, setOpen] = useState(false);
+  const [muted, setMuted] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  const toast = useToast();
+  const seenAt = useRef<number | null>(null);
   const unread = data.filter((n) => !n.read).length;
+
+  // Unlock audio on the first user interaction (browsers block autoplay).
+  useEffect(() => {
+    const unlock = () => ensureAudio();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    return () => window.removeEventListener("pointerdown", unlock);
+  }, []);
+
+  // Real-time: when a newer notification arrives, chime + toast popup.
+  useEffect(() => {
+    if (data.length === 0) return;
+    const newest = data[0].at; // sorted desc
+    if (seenAt.current === null) {
+      seenAt.current = newest; // first load — don't announce history
+      return;
+    }
+    if (newest > seenAt.current) {
+      const fresh = data.filter((n) => n.at > (seenAt.current as number));
+      seenAt.current = newest;
+      if (!muted) playChime();
+      const first = fresh[0];
+      toast.info(
+        fresh.length > 1 ? `${fresh.length} new notifications` : "New notification",
+        first?.message
+      );
+    }
+  }, [data, muted, toast]);
 
   useEffect(() => {
     if (!open) return;
-    // Mark all read when the panel is opened.
     fetch("/api/admin/notifications/read", { method: "POST" }).catch(() => {});
     const onClick = (e: MouseEvent) => {
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
@@ -65,8 +130,15 @@ export default function NotificationsBell() {
 
       {open && (
         <div className="absolute right-0 mt-2 w-80 max-w-[90vw] bg-white rounded-xl border border-[var(--color-line)] shadow-xl z-50 overflow-hidden animate-in">
-          <div className="px-4 py-3 border-b border-[var(--color-line)] font-semibold text-sm">
-            Notifications
+          <div className="px-4 py-3 border-b border-[var(--color-line)] flex items-center justify-between">
+            <span className="font-semibold text-sm">Notifications</span>
+            <button
+              onClick={() => { ensureAudio(); setMuted((m) => !m); }}
+              className="text-xs font-medium text-[var(--color-muted)] hover:text-brand-600"
+              title={muted ? "Sound off" : "Sound on"}
+            >
+              {muted ? "🔕 Sound off" : "🔔 Sound on"}
+            </button>
           </div>
           <div className="max-h-96 overflow-y-auto">
             {data.length === 0 ? (
@@ -95,6 +167,14 @@ export default function NotificationsBell() {
               })
             )}
           </div>
+          {unread > 0 && (
+            <button
+              onClick={() => fetch("/api/admin/notifications/read", { method: "POST" }).catch(() => {})}
+              className="w-full px-4 py-2.5 text-xs font-medium text-brand-600 hover:bg-brand-50 border-t border-[var(--color-line)]"
+            >
+              Mark all as read
+            </button>
+          )}
         </div>
       )}
     </div>

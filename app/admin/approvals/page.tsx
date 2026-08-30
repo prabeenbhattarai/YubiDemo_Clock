@@ -9,6 +9,7 @@ import Modal from "@/components/modal";
 import { ShiftDetailModal, TimesheetDetailModal } from "@/components/record-detail";
 import ShiftMap from "@/components/shift-map";
 import { useToast } from "@/components/toast";
+import { useConfirm } from "@/components/confirm";
 import {
   IconCheck,
   IconPencil,
@@ -18,6 +19,7 @@ import {
   IconApprovals,
   IconMapPin,
   IconInfo,
+  IconTrash,
 } from "@/components/icons";
 
 const ACTION_TOAST: Record<string, string> = {
@@ -111,9 +113,23 @@ function TimesheetList({ filter }: { filter: ApprovalStatus | "all" }) {
     orderBy("createdAt", "desc"),
   ]);
   const toast = useToast();
+  const confirm = useConfirm();
   const rows = data.filter((t) => filter === "all" || t.status === filter);
   const [editing, setEditing] = useState<Timesheet | null>(null);
   const [detail, setDetail] = useState<Timesheet | null>(null);
+
+  async function del(ts: Timesheet) {
+    const ok = await confirm({
+      title: "Delete this timesheet?",
+      message: `Permanently delete ${ts.workerName}'s timesheet for ${ts.siteLabel}? This cannot be undone.`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
+    const res = await fetch(`/api/admin/approvals/timesheet/${ts.id}`, { method: "DELETE" });
+    if (res.ok) toast.success("Timesheet deleted");
+    else toast.error("Could not delete");
+  }
 
   if (loading)
     return <div className="py-12 text-center text-[var(--color-muted)]"><Spinner /></div>;
@@ -150,6 +166,7 @@ function TimesheetList({ filter }: { filter: ApprovalStatus | "all" }) {
             }
             onEdit={() => setEditing(ts)}
             onDetails={() => setDetail(ts)}
+            onDelete={() => del(ts)}
             status={ts.status}
           />
         </div>
@@ -226,6 +243,7 @@ function ShiftList({ filter }: { filter: ApprovalStatus | "all" }) {
     orderBy("startedAt", "desc"),
   ]);
   const toast = useToast();
+  const confirm = useConfirm();
   const { data: sites } = useLiveCollection<Site>("sites", []);
   const rows = data
     .filter((s) => s.status === "completed")
@@ -233,6 +251,19 @@ function ShiftList({ filter }: { filter: ApprovalStatus | "all" }) {
   const [editing, setEditing] = useState<Shift | null>(null);
   const [mapShift, setMapShift] = useState<Shift | null>(null);
   const [detail, setDetail] = useState<Shift | null>(null);
+
+  async function del(s: Shift) {
+    const ok = await confirm({
+      title: "Delete this shift?",
+      message: `Permanently delete ${s.workerName}'s shift at ${s.siteName}? This cannot be undone.`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
+    const res = await fetch(`/api/admin/approvals/shift/${s.id}`, { method: "DELETE" });
+    if (res.ok) toast.success("Shift deleted");
+    else toast.error("Could not delete");
+  }
 
   if (loading)
     return <div className="py-12 text-center text-[var(--color-muted)]"><Spinner /></div>;
@@ -293,6 +324,7 @@ function ShiftList({ filter }: { filter: ApprovalStatus | "all" }) {
             }
             onEdit={() => setEditing(s)}
             onDetails={() => setDetail(s)}
+            onDelete={() => del(s)}
             status={s.approvalStatus}
           />
         </div>
@@ -399,11 +431,13 @@ function Actions({
   onAction,
   onEdit,
   onDetails,
+  onDelete,
   status,
 }: {
   onAction: (action: string, note?: string) => Promise<unknown>;
   onEdit: () => void;
   onDetails?: () => void;
+  onDelete?: () => void;
   status: ApprovalStatus;
 }) {
   const [busy, setBusy] = useState("");
@@ -435,6 +469,11 @@ function Actions({
       {status !== "declined" && (
         <button className="btn-ghost px-3 py-2 text-xs text-[var(--color-danger)]" onClick={() => run("decline")} disabled={!!busy}>
           {busy === "decline" ? <Spinner /> : <><IconX size={15} /> Decline</>}
+        </button>
+      )}
+      {onDelete && (
+        <button className="btn-ghost px-3 py-2 text-xs text-[var(--color-danger)] ml-auto" onClick={onDelete} disabled={!!busy} title="Delete permanently">
+          <IconTrash size={15} /> Delete
         </button>
       )}
     </div>

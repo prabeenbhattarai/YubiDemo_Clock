@@ -14,6 +14,7 @@ import { auDateKey } from "@/lib/reconcile";
 import { StatusPill, Spinner, EmptyState } from "@/components/ui";
 import PlaceSearch from "@/components/place-search";
 import { useToast } from "@/components/toast";
+import { useConfirm } from "@/components/confirm";
 import { IconClipboard } from "@/components/icons";
 
 /** Short label for a fortnight day key, e.g. "Mon, 18 Aug". */
@@ -194,6 +195,7 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState("");
   const toast = useToast();
+  const confirm = useConfirm();
 
   function changePeriod(next: string) {
     setPeriodStart(next);
@@ -220,6 +222,14 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
       setError(`Add a location for: ${missingLoc.join(", ")}.`);
       return;
     }
+
+    const ok = await confirm({
+      title: "Submit timesheet?",
+      message: `Submit ${toSubmit.length} day${toSubmit.length === 1 ? "" : "s"} for ${fortnightLabel(periodStart)} — ${decimalHours(totalMinutes)} h total. Your admin will review it for approval.`,
+      confirmLabel: "Yes, submit",
+      cancelLabel: "Not yet",
+    });
+    if (!ok) return;
 
     setSaving(true);
     setProgress({ done: 0, total: toSubmit.length });
@@ -299,7 +309,7 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
           </div>
         </div>
         {error && <p className="mb-3 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">{error}</p>}
-        <button className="btn-ocean w-full" onClick={submit} disabled={saving || filledCount === 0}>
+        <button className="btn-ocean w-full" onClick={submit} disabled={saving}>
           {saving && progress ? `Submitting ${progress.done}/${progress.total}…` : "Submit timesheet"}
         </button>
       </div>
@@ -308,7 +318,7 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
 }
 
 const cellInput =
-  "w-full rounded-lg border border-[var(--color-line)] bg-white px-2 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100";
+  "w-full min-w-0 rounded-lg border border-[var(--color-line)] bg-white px-2 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100";
 
 function DayRow({
   row,
@@ -333,16 +343,16 @@ function DayRow({
         onChange({ loc: p.address, lat: "lat" in p ? p.lat : undefined, lng: "lat" in p ? p.lng : undefined })
       } />
 
-      <div className="grid grid-cols-[1fr_1fr_78px] gap-2">
-        <label className="block">
-          <span className="block text-[11px] font-medium text-[var(--color-muted)] mb-1">Start time</span>
-          <input type="time" className={cellInput} value={row.start} onChange={(e) => onChange({ start: e.target.value })} />
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_62px] gap-1.5">
+        <label className="block min-w-0">
+          <span className="block text-[11px] font-medium text-[var(--color-muted)] mb-1">Start</span>
+          <input type="time" className={`${cellInput} ts-time`} value={row.start} onChange={(e) => onChange({ start: e.target.value })} />
         </label>
-        <label className="block">
-          <span className="block text-[11px] font-medium text-[var(--color-muted)] mb-1">End time</span>
-          <input type="time" className={cellInput} value={row.end} onChange={(e) => onChange({ end: e.target.value })} />
+        <label className="block min-w-0">
+          <span className="block text-[11px] font-medium text-[var(--color-muted)] mb-1">End</span>
+          <input type="time" className={`${cellInput} ts-time`} value={row.end} onChange={(e) => onChange({ end: e.target.value })} />
         </label>
-        <label className="block">
+        <label className="block min-w-0">
           <span className="block text-[11px] font-medium text-[var(--color-muted)] mb-1">Break</span>
           <input type="number" min={0} step={5} inputMode="numeric" placeholder="0" className={cellInput} value={row.brk} onChange={(e) => onChange({ brk: e.target.value })} />
         </label>

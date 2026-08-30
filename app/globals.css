@@ -208,3 +208,9 @@ body {
 .pill-edited { background: #f1f5f9; color: var(--color-ink-soft); }
 .pill-active { background: var(--color-success-soft); color: var(--color-success); }
 .pill-completed { background: #f1f5f9; color: var(--color-muted); }
+
+/* Compact native time inputs in the worker timesheet grid (prevents the
+   picker icon from overflowing / overlapping on narrow phones). */
+.ts-time::-webkit-calendar-picker-indicator { display: none; }
+.ts-time::-webkit-date-and-time-value { text-align: left; }
+.ts-time { min-width: 0; }

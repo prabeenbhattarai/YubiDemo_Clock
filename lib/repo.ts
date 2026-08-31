@@ -9,6 +9,7 @@ export const COL = {
   workers: "workers",
   shifts: "shifts",
   timesheets: "timesheets",
+  timesheetDrafts: "timesheetDrafts",
   otps: "otps",
   notifications: "notifications",
 } as const;

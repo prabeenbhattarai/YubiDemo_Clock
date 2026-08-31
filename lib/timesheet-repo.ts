@@ -64,3 +64,42 @@ export async function listWorkerTimesheets(uid: string): Promise<Timesheet[]> {
   );
   return rows.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 }
+
+// ---- Timesheet drafts (worker "save but not submit") ----------------------
+
+export interface DraftRow {
+  dayKey: string;
+  loc: string;
+  lat: number | null;
+  lng: number | null;
+  start: string; // "HH:MM"
+  end: string;   // "HH:MM"
+  brk: string;   // minutes as string
+}
+
+function draftId(workerUid: string, periodStart: string) {
+  return `${workerUid}__${periodStart}`;
+}
+
+export async function getTimesheetDraft(
+  workerUid: string,
+  periodStart: string
+): Promise<{ periodStart: string; rows: DraftRow[]; updatedAt?: number } | null> {
+  const doc = await adminDb.collection(COL.timesheetDrafts).doc(draftId(workerUid, periodStart)).get();
+  if (!doc.exists) return null;
+  const d = doc.data() as { periodStart?: string; rows?: DraftRow[]; updatedAt?: number };
+  return { periodStart: d.periodStart || periodStart, rows: Array.isArray(d.rows) ? d.rows : [], updatedAt: d.updatedAt };
+}
+
+export async function saveTimesheetDraft(workerUid: string, periodStart: string, rows: DraftRow[]) {
+  await adminDb.collection(COL.timesheetDrafts).doc(draftId(workerUid, periodStart)).set({
+    workerUid,
+    periodStart,
+    rows,
+    updatedAt: now(),
+  });
+}
+
+export async function deleteTimesheetDraft(workerUid: string, periodStart: string) {
+  await adminDb.collection(COL.timesheetDrafts).doc(draftId(workerUid, periodStart)).delete().catch(() => {});
+}

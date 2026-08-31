@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useCurrentUid, useLiveCollection, where } from "@/lib/live";
 import type { Timesheet } from "@/lib/types";
 import { computeWorkedMinutes, formatAuDateTime, minutesToHhMm } from "@/lib/time";
@@ -194,13 +194,86 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState("");
+  const [draftStatus, setDraftStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const loadedPeriod = useRef<string>("");
   const toast = useToast();
   const confirm = useConfirm();
 
   function changePeriod(next: string) {
     setPeriodStart(next);
-    setRows((prev) => prev.map((r, i) => ({ ...r, dayKey: addDaysKey(next, i) })));
+    setRows(buildRows(next)); // load effect overlays any saved draft for this period
   }
+
+  // Load this period's saved draft (survives reloads / device switches).
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      setDraftStatus("idle");
+      try {
+        const res = await fetch(`/api/worker/timesheet-draft?period=${periodStart}`, { cache: "no-store" });
+        const data = res.ok ? await res.json().catch(() => ({})) : {};
+        if (!active) return;
+        const draftRows = data?.draft?.rows as
+          | { dayKey: string; loc?: string; lat?: number | null; lng?: number | null; start?: string; end?: string; brk?: string }[]
+          | undefined;
+        const base = buildRows(periodStart);
+        if (Array.isArray(draftRows) && draftRows.length) {
+          const byDay = new Map(draftRows.map((r) => [r.dayKey, r]));
+          setRows(
+            base.map((r) => {
+              const d = byDay.get(r.dayKey);
+              return d
+                ? {
+                    dayKey: r.dayKey,
+                    loc: d.loc || "",
+                    lat: typeof d.lat === "number" ? d.lat : undefined,
+                    lng: typeof d.lng === "number" ? d.lng : undefined,
+                    start: d.start || "",
+                    end: d.end || "",
+                    brk: d.brk || "",
+                  }
+                : r;
+            })
+          );
+          setDraftStatus("saved");
+        }
+      } catch {
+        /* keep the blank period */
+      } finally {
+        loadedPeriod.current = periodStart;
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [periodStart]);
+
+  const saveDraft = async (manual: boolean) => {
+    try {
+      const res = await fetch("/api/worker/timesheet-draft", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ periodStart, rows }),
+      });
+      if (res.ok) {
+        setDraftStatus("saved");
+        if (manual) toast.success("Draft saved", "Your entries are kept for this period until you submit.");
+      } else if (manual) toast.error("Couldn’t save draft");
+    } catch {
+      if (manual) toast.error("Couldn’t save draft");
+    }
+  };
+
+  // Auto-save (debounced) once the period's draft has loaded and there's data.
+  useEffect(() => {
+    if (loadedPeriod.current !== periodStart) return;
+    const hasData = rows.some((r) => r.loc.trim() || r.start || r.end || r.brk);
+    if (!hasData) return;
+    setDraftStatus("saving");
+    const t = setTimeout(() => saveDraft(false), 1200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
 
   function update(i: number, patch: Partial<Row>) {
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -274,6 +347,8 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
       toast.error("Some days didn’t submit", `${failures.length} of ${toSubmit.length} failed.`);
       return;
     }
+    // Submitted cleanly — clear the saved draft for this period.
+    await fetch(`/api/worker/timesheet-draft?period=${periodStart}`, { method: "DELETE" }).catch(() => {});
     toast.success("Timesheet submitted", `${toSubmit.length} day${toSubmit.length === 1 ? "" : "s"} sent for approval.`);
     onDone();
   }
@@ -288,6 +363,9 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
             <option key={p.startKey} value={p.startKey}>{p.label}</option>
           ))}
         </select>
+        <p className="mt-2 text-xs text-[var(--color-muted)]">
+          Fill days as you work — entries save automatically. Submit at the end of the fortnight.
+        </p>
       </div>
 
       {/* One card per day */}
@@ -309,6 +387,18 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
           </div>
         </div>
         {error && <p className="mb-3 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">{error}</p>}
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-xs text-[var(--color-muted)]">
+            {draftStatus === "saving" ? "Saving draft…" : draftStatus === "saved" ? "✓ Draft saved" : "Not saved yet"}
+          </span>
+          <button
+            className="btn-outline px-3 py-1.5 text-xs"
+            onClick={() => saveDraft(true)}
+            disabled={saving}
+          >
+            Save draft
+          </button>
+        </div>
         <button className="btn-ocean w-full" onClick={submit} disabled={saving}>
           {saving && progress ? `Submitting ${progress.done}/${progress.total}…` : "Submit timesheet"}
         </button>
@@ -339,7 +429,7 @@ function DayRow({
         </span>
       </div>
 
-      <PlaceSearch className={`${cellInput} mb-2`} placeholder="Location / site…" onChange={(p) =>
+      <PlaceSearch className={`${cellInput} mb-2`} placeholder="Location / site…" defaultValue={row.loc} onChange={(p) =>
         onChange({ loc: p.address, lat: "lat" in p ? p.lat : undefined, lng: "lat" in p ? p.lng : undefined })
       } />
 

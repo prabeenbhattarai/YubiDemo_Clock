@@ -54,6 +54,15 @@ export default function PlaceSearch({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keep the (uncontrolled) input in sync when the value is set externally,
+  // e.g. a saved draft loading in. Only writes when it actually differs, so it
+  // never fights the user's typing or moves the caret.
+  useEffect(() => {
+    if (inputRef.current && defaultValue != null && inputRef.current.value !== defaultValue) {
+      inputRef.current.value = defaultValue;
+    }
+  }, [defaultValue]);
+
   return (
     <input
       ref={inputRef}

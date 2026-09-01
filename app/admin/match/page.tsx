@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useLiveCollection } from "@/lib/live";
-import type { Shift, Timesheet } from "@/lib/types";
+import type { Shift, Site, Timesheet } from "@/lib/types";
 import { formatAuTime, formatAuDateTime, minutesToHhMm, shiftWorkedMinutes } from "@/lib/time";
 import {
   buildReconciliation,
@@ -49,6 +49,7 @@ function shiftBreak(s: Shift) {
 export default function MatchPage() {
   const { data: shifts, loading: l1 } = useLiveCollection<Shift>("shifts", []);
   const { data: timesheets, loading: l2 } = useLiveCollection<Timesheet>("timesheets", []);
+  const { data: sites } = useLiveCollection<Site>("sites", []);
   const toast = useToast();
   const confirm = useConfirm();
 
@@ -59,7 +60,7 @@ export default function MatchPage() {
   const [editTs, setEditTs] = useState<Timesheet | null>(null);
   const [linkFor, setLinkFor] = useState<ReconRow | null>(null);
 
-  const allRows = useMemo(() => buildReconciliation(shifts, timesheets), [shifts, timesheets]);
+  const allRows = useMemo(() => buildReconciliation(shifts, timesheets, sites), [shifts, timesheets, sites]);
   const rows = useMemo(
     () => (period === ALL ? allRows : allRows.filter((r) => isWithinFortnight(r.dateKey, period))),
     [allRows, period]

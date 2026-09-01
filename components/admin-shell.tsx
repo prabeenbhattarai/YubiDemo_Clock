@@ -14,6 +14,7 @@ import {
   IconMenu,
   IconClipboard,
   IconClock,
+  IconLink,
 } from "@/components/icons";
 import Logo from "@/components/logo";
 import GlobalSearch from "@/components/global-search";
@@ -25,6 +26,7 @@ const NAV = [
   { href: "/admin/approvals", label: "Approvals", Icon: IconApprovals },
   { href: "/admin/live", label: "On shift", Icon: IconClock },
   { href: "/admin/reports", label: "Reports", Icon: IconClipboard },
+  { href: "/admin/match", label: "Match", Icon: IconLink },
   { href: "/admin/sites", label: "Sites", Icon: IconMapPin },
   { href: "/admin/workers", label: "Workers", Icon: IconUsers },
 ];

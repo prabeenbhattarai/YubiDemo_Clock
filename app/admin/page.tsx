@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useLiveCollection } from "@/lib/live";
 import type { Shift, Site, Timesheet, Worker } from "@/lib/types";
-import { elapsed, minutesToHhMm, shiftWorkedMinutes } from "@/lib/time";
+import { auParts, elapsed, greeting, minutesToHhMm, shiftWorkedMinutes } from "@/lib/time";
 import { useNow } from "@/components/live-clock";
 import { EmptyState, StatusPill } from "@/components/ui";
 import Modal from "@/components/modal";
@@ -16,10 +16,13 @@ import {
   IconClipboard,
   IconArrowUpRight,
   IconMapPin,
+  IconClock,
+  IconApprovals,
 } from "@/components/icons";
 
 const AU_TZ = "Australia/Sydney";
-const DAYS = ["S", "M", "T", "W", "T", "F", "S"];
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_INIT = ["S", "M", "T", "W", "T", "F", "S"];
 
 function auWeekday(ms: number): number {
   const wd = new Intl.DateTimeFormat("en-US", { timeZone: AU_TZ, weekday: "short" }).format(
@@ -41,7 +44,6 @@ export default function AdminDashboard() {
     shifts.filter((s) => s.status === "completed" && s.approvalStatus === "pending").length +
     timesheets.filter((t) => t.status === "pending").length;
 
-  // Weekly hours (Sun..Sat, current calendar behaviour — recent 7 buckets).
   const weekly = useMemo(() => {
     const buckets = [0, 0, 0, 0, 0, 0, 0];
     for (const s of shifts) {
@@ -53,46 +55,31 @@ export default function AdminDashboard() {
     return buckets;
   }, [shifts, timesheets]);
 
-  // Approvals progress across everything reviewed.
   const reviewables = [
     ...shifts.filter((s) => s.status === "completed").map((s) => s.approvalStatus),
     ...timesheets.map((t) => t.status),
   ];
   const approved = reviewables.filter((s) => s === "approved").length;
-  const approvalPct = reviewables.length
-    ? Math.round((approved / reviewables.length) * 100)
-    : 0;
+  const approvalPct = reviewables.length ? Math.round((approved / reviewables.length) * 100) : 0;
 
   return (
     <div>
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
-        <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-[var(--color-muted)]">
-            Plan, monitor, and approve your team&apos;s time with ease.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Link href="/admin/workers" className="btn-primary">+ Add worker</Link>
-          <Link href="/admin/sites" className="btn-outline">Add site</Link>
-        </div>
-      </div>
+      <DashboardHero onShift={active.length} pending={pending} />
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <StatCard highlight title="On shift now" value={active.length} sub="Live headcount" href="/admin" />
-        <StatCard title="Off-site" value={offsite.length} sub="Left the boundary" tone="warn" />
-        <StatCard title="Pending approvals" value={pending} sub="Awaiting review" href="/admin/approvals" tone="brand" />
-        <StatCard title="Workers" value={workers.length} sub={`${sites.length} sites`} href="/admin/workers" />
+        <StatCard title="On shift now" value={active.length} sub="Live headcount" href="/admin/live" icon={<IconClock size={16} />} highlight />
+        <StatCard title="Off-site" value={offsite.length} sub="Left the boundary" href="/admin/live" icon={<IconMapPin size={16} />} tone="warn" />
+        <StatCard title="Pending approvals" value={pending} sub="Awaiting review" href="/admin/approvals" icon={<IconApprovals size={16} />} tone="brand" />
+        <StatCard title="Workers" value={workers.length} sub={`${sites.length} site${sites.length === 1 ? "" : "s"}`} href="/admin/workers" icon={<IconUsers size={16} />} />
       </div>
 
       {/* Row: weekly hours + attention */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-        <div className="card p-5 lg:col-span-2">
+        <div className="card p-5 lg:col-span-2 transition hover:shadow-md">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-lg">Hours logged</h2>
-            <span className="text-xs text-[var(--color-muted)]">by weekday</span>
+            <span className="text-xs text-[var(--color-muted)]">by weekday · hover a bar</span>
           </div>
           <WeeklyBars data={weekly} />
         </div>
@@ -102,12 +89,15 @@ export default function AdminDashboard() {
 
       {/* Row: team status + approvals gauge */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-        <div className="card p-5 lg:col-span-2">
-          <h2 className="font-semibold text-lg mb-4">Team status</h2>
+        <div className="card p-5 lg:col-span-2 transition hover:shadow-md">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-lg">Team status</h2>
+            <Link href="/admin/workers" className="text-sm text-brand-600 font-medium hover:underline">All workers →</Link>
+          </div>
           <TeamStatus workers={workers} active={active} onViewRoute={setMapShift} />
         </div>
 
-        <div className="card p-5">
+        <div className="card p-5 transition hover:shadow-md">
           <h2 className="font-semibold text-lg mb-2">Approvals progress</h2>
           <Gauge pct={approvalPct} />
           <div className="flex justify-center gap-4 text-xs mt-3">
@@ -119,10 +109,10 @@ export default function AdminDashboard() {
 
       {/* Row: recent + time tracker */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="card p-5 lg:col-span-2">
+        <div className="card p-5 lg:col-span-2 transition hover:shadow-md">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold text-lg">Recent activity</h2>
-            <Link href="/admin/approvals" className="text-sm text-brand-600 font-medium">
+            <Link href="/admin/approvals" className="text-sm text-brand-600 font-medium hover:underline">
               Go to approvals →
             </Link>
           </div>
@@ -142,6 +132,63 @@ export default function AdminDashboard() {
   );
 }
 
+/* -------------------------------- hero + clock -------------------------------- */
+
+function DashboardHero({ onShift, pending }: { onShift: number; pending: number }) {
+  const now = useNow(1000);
+  const { time, dateLong, hour } = auParts(now);
+  const [name, setName] = useState("");
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((d) => { if (d?.user?.name) setName(String(d.user.name).split(" ")[0]); })
+      .catch(() => {});
+  }, []);
+
+  return (
+    <div
+      className="relative overflow-hidden rounded-3xl text-white p-6 md:p-8 mb-5 shadow-lg"
+      style={{ backgroundImage: "linear-gradient(135deg,#4f46e5 0%,#4338ca 55%,#312e81 100%)" }}
+    >
+      <div className="pointer-events-none absolute -top-16 -right-8 w-64 h-64 rounded-full bg-white/10 blur-2xl" />
+      <div className="pointer-events-none absolute -bottom-24 -left-10 w-72 h-72 rounded-full bg-black/10 blur-2xl" />
+
+      <div className="relative flex flex-wrap items-end justify-between gap-6">
+        <div>
+          <p className="text-white/70 font-medium">{greeting(hour)}{name ? `, ${name}` : ""}</p>
+          <h1 className="text-2xl md:text-3xl font-bold mt-1">Dashboard</h1>
+          <p className="text-white/60 text-sm mt-1.5">{dateLong}</p>
+          <div className="flex flex-wrap gap-2 mt-4">
+            <Link href="/admin/workers" className="rounded-xl bg-white text-brand-700 font-semibold text-sm px-4 py-2.5 hover:bg-white/90 active:scale-[.98] transition">
+              + Add worker
+            </Link>
+            <Link href="/admin/sites" className="rounded-xl bg-white/15 text-white font-semibold text-sm px-4 py-2.5 hover:bg-white/25 active:scale-[.98] transition">
+              Add site
+            </Link>
+          </div>
+        </div>
+
+        <div className="text-right">
+          <div className="text-5xl md:text-6xl font-bold tabular-nums tracking-tight leading-none">{time}</div>
+          <p className="text-white/60 text-xs mt-2">Australian Eastern time</p>
+          <div className="flex gap-5 justify-end mt-4">
+            <Link href="/admin/live" className="text-right group">
+              <div className="text-2xl font-bold tabular-nums group-hover:text-white/90">{onShift}</div>
+              <div className="text-white/60 text-xs group-hover:text-white/80">on shift</div>
+            </Link>
+            <div className="w-px bg-white/20" />
+            <Link href="/admin/approvals" className="text-right group">
+              <div className="text-2xl font-bold tabular-nums group-hover:text-white/90">{pending}</div>
+              <div className="text-white/60 text-xs group-hover:text-white/80">to review</div>
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* -------------------------------- widgets -------------------------------- */
 
 function StatCard({
@@ -151,6 +198,7 @@ function StatCard({
   highlight,
   tone,
   href,
+  icon,
 }: {
   title: string;
   value: number;
@@ -158,10 +206,13 @@ function StatCard({
   highlight?: boolean;
   tone?: "warn" | "brand";
   href?: string;
+  icon?: React.ReactNode;
 }) {
   const body = (
     <div
-      className={`rounded-2xl border p-4 h-full ${
+      className={`group relative rounded-2xl border p-4 h-full transition-all duration-200 ${
+        href ? "hover:-translate-y-1 hover:shadow-xl cursor-pointer" : ""
+      } ${
         highlight
           ? "bg-brand-600 border-brand-600 text-white"
           : "bg-[var(--color-surface)] border-[var(--color-line)]"
@@ -172,17 +223,22 @@ function StatCard({
           {title}
         </span>
         <span
-          className={`w-7 h-7 rounded-full grid place-items-center ${
-            highlight ? "bg-white/20" : "border border-[var(--color-line)]"
+          className={`w-7 h-7 rounded-full grid place-items-center transition ${
+            highlight ? "bg-white/20" : "border border-[var(--color-line)] group-hover:bg-brand-50 group-hover:border-brand-200 group-hover:text-brand-600"
           }`}
         >
-          <IconArrowUpRight size={14} />
+          {icon ?? <IconArrowUpRight size={14} />}
         </span>
       </div>
-      <div className={`text-4xl font-bold mt-3 ${
-        tone === "warn" && value > 0 && !highlight ? "text-warn" : ""
-      }`}>{value}</div>
+      <div className={`text-4xl font-bold mt-3 tabular-nums ${tone === "warn" && value > 0 && !highlight ? "text-warn" : ""}`}>
+        {value}
+      </div>
       <div className={`text-xs mt-1 ${highlight ? "text-brand-100" : "text-[var(--color-muted)]"}`}>{sub}</div>
+      {href && (
+        <div className={`mt-3 flex items-center gap-1 text-xs font-medium transition-all duration-200 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 ${highlight ? "text-white" : "text-brand-600"}`}>
+          View <IconArrowUpRight size={12} />
+        </div>
+      )}
     </div>
   );
   return href ? <Link href={href}>{body}</Link> : body;
@@ -197,21 +253,27 @@ function WeeklyBars({ data }: { data: number[] }) {
         const h = Math.max(6, Math.round((v / max) * 100));
         const isPeak = i === peak && v > 0;
         return (
-          <div key={i} className="flex-1 flex flex-col items-center gap-2">
+          <div key={i} className="group relative flex-1 flex flex-col items-center gap-2">
             <div className="w-full flex-1 min-h-0 flex items-end justify-center">
               <div
-                className={`w-full max-w-9 rounded-full transition-all ${
+                className={`w-full max-w-9 rounded-full transition-all duration-200 group-hover:brightness-110 ${
                   v === 0
                     ? "bg-[var(--color-canvas)] border border-dashed border-[var(--color-line)]"
                     : isPeak
                     ? "bg-brand-600"
-                    : "bg-brand-300"
+                    : "bg-brand-300 group-hover:bg-brand-500"
                 }`}
                 style={{ height: `${h}%` }}
-                title={minutesToHhMm(v)}
+                title={`${DAYS[i]} · ${v > 0 ? minutesToHhMm(v) : "No hours"}`}
               />
             </div>
-            <span className="text-xs text-[var(--color-muted)]">{DAYS[i]}</span>
+            <span className="text-xs text-[var(--color-muted)]">{DAY_INIT[i]}</span>
+            {/* hover tooltip */}
+            <div className="pointer-events-none absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="bg-ink text-white text-xs font-medium rounded-lg px-2.5 py-1.5 shadow-lg whitespace-nowrap">
+                {DAYS[i]} · {v > 0 ? minutesToHhMm(v) : "No hours"}
+              </div>
+            </div>
           </div>
         );
       })}
@@ -221,7 +283,7 @@ function WeeklyBars({ data }: { data: number[] }) {
 
 function AttentionCard({ offsite, pending }: { offsite: Shift[]; pending: number }) {
   return (
-    <div className="card p-5">
+    <div className="card p-5 transition hover:shadow-md">
       <h2 className="font-semibold text-lg mb-3">Needs attention</h2>
       {offsite.length === 0 && pending === 0 ? (
         <div className="flex flex-col items-center gap-2 text-sm text-[var(--color-muted)] py-6 text-center">
@@ -242,10 +304,7 @@ function AttentionCard({ offsite, pending }: { offsite: Shift[]; pending: number
             </div>
           ))}
           {pending > 0 && (
-            <Link
-              href="/admin/approvals"
-              className="btn-primary w-full mt-1"
-            >
+            <Link href="/admin/approvals" className="btn-primary w-full mt-1">
               Review {pending} pending {pending === 1 ? "item" : "items"}
             </Link>
           )}
@@ -272,7 +331,7 @@ function TeamStatus({
       {workers.slice(0, 6).map((w) => {
         const shift = w.uid ? activeByUid.get(w.uid) : undefined;
         return (
-          <li key={w.id} className="flex items-center gap-3 py-2">
+          <li key={w.id} className="flex items-center gap-3 py-2 px-2 -mx-2 rounded-xl transition hover:bg-[var(--color-canvas)]">
             <div className="w-9 h-9 rounded-full bg-brand-100 text-brand-700 grid place-items-center font-semibold text-sm shrink-0">
               {w.name.slice(0, 1).toUpperCase()}
             </div>
@@ -304,20 +363,13 @@ function TeamStatus({
 }
 
 function Gauge({ pct }: { pct: number }) {
-  // Semi-circle gauge.
   const r = 70;
-  const circ = Math.PI * r; // half circle length
+  const circ = Math.PI * r;
   const filled = (pct / 100) * circ;
   return (
     <div className="relative grid place-items-center py-2">
       <svg width="180" height="110" viewBox="0 0 180 110">
-        <path
-          d={`M 20 100 A ${r} ${r} 0 0 1 160 100`}
-          fill="none"
-          stroke="var(--color-line)"
-          strokeWidth="16"
-          strokeLinecap="round"
-        />
+        <path d={`M 20 100 A ${r} ${r} 0 0 1 160 100`} fill="none" stroke="var(--color-line)" strokeWidth="16" strokeLinecap="round" />
         <path
           d={`M 20 100 A ${r} ${r} 0 0 1 160 100`}
           fill="none"
@@ -325,10 +377,11 @@ function Gauge({ pct }: { pct: number }) {
           strokeWidth="16"
           strokeLinecap="round"
           strokeDasharray={`${filled} ${circ}`}
+          style={{ transition: "stroke-dasharray 0.6s ease" }}
         />
       </svg>
       <div className="absolute bottom-1 text-center">
-        <div className="text-3xl font-bold">{pct}%</div>
+        <div className="text-3xl font-bold tabular-nums">{pct}%</div>
         <div className="text-xs text-[var(--color-muted)]">Approved</div>
       </div>
     </div>
@@ -344,13 +397,7 @@ function Legend({ color, label }: { color: string; label: string }) {
   );
 }
 
-function RecentActivity({
-  shifts,
-  timesheets,
-}: {
-  shifts: Shift[];
-  timesheets: Timesheet[];
-}) {
+function RecentActivity({ shifts, timesheets }: { shifts: Shift[]; timesheets: Timesheet[] }) {
   const items = useMemo(() => {
     const a = shifts.map((s) => ({
       id: s.id,
@@ -373,7 +420,7 @@ function RecentActivity({
   return (
     <ul className="divide-y divide-[var(--color-line)]">
       {items.map((it) => (
-        <li key={it.id} className="flex items-center gap-3 py-2.5">
+        <li key={it.id} className="flex items-center gap-3 py-2.5 px-2 -mx-2 rounded-xl transition hover:bg-[var(--color-canvas)]">
           <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 grid place-items-center text-xs font-semibold shrink-0">
             {it.title.slice(0, 1).toUpperCase()}
           </div>
@@ -392,7 +439,8 @@ function TimeTracker({ active }: { active: Shift[] }) {
   const now = useNow(1000);
   const totalMs = active.reduce((sum, s) => sum + (now - s.startedAt), 0);
   return (
-    <div className="card p-5 relative overflow-hidden text-white grad-ocean-dark">
+    <div className="card p-5 relative overflow-hidden text-white grad-ocean-dark transition hover:shadow-lg">
+      <div className="pointer-events-none absolute -top-10 -right-6 w-40 h-40 rounded-full bg-white/10 blur-2xl" />
       <div className="relative">
         <h2 className="font-semibold text-lg">Time Tracker</h2>
         <p className="text-white/70 text-xs mb-4">Total live time across active shifts</p>

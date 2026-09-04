@@ -64,7 +64,7 @@ export default function AdminDashboard() {
 
   return (
     <div>
-      <DashboardHero onShift={active.length} pending={pending} />
+      <DashboardHero active={active} pending={pending} />
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
@@ -107,19 +107,15 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Row: recent + time tracker */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="card p-5 lg:col-span-2 transition hover:shadow-md">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-lg">Recent activity</h2>
-            <Link href="/admin/approvals" className="text-sm text-brand-600 font-medium hover:underline">
-              Go to approvals →
-            </Link>
-          </div>
-          <RecentActivity shifts={shifts} timesheets={timesheets} />
+      {/* Row: recent activity */}
+      <div className="card p-5 transition hover:shadow-md">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold text-lg">Recent activity</h2>
+          <Link href="/admin/approvals" className="text-sm text-brand-600 font-medium hover:underline">
+            Go to approvals →
+          </Link>
         </div>
-
-        <TimeTracker active={active} />
+        <RecentActivity shifts={shifts} timesheets={timesheets} />
       </div>
 
       {mapShift && (
@@ -134,10 +130,12 @@ export default function AdminDashboard() {
 
 /* -------------------------------- hero + clock -------------------------------- */
 
-function DashboardHero({ onShift, pending }: { onShift: number; pending: number }) {
+function DashboardHero({ active, pending }: { active: Shift[]; pending: number }) {
   const now = useNow(1000);
-  const { time, dateLong, hour } = auParts(now);
+  const { dateLong, hour } = auParts(now);
   const [name, setName] = useState("");
+  const totalMs = active.reduce((sum, s) => sum + (now - s.startedAt), 0);
+  const counter = active.length ? elapsed(0, totalMs) : "00:00:00";
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -170,11 +168,11 @@ function DashboardHero({ onShift, pending }: { onShift: number; pending: number 
         </div>
 
         <div className="text-right">
-          <div className="text-5xl md:text-6xl font-bold tabular-nums tracking-tight leading-none">{time}</div>
-          <p className="text-white/60 text-xs mt-2">Australian Eastern time</p>
+          <div className="text-white/60 text-xs uppercase tracking-wide">Live time on shift</div>
+          <div className="text-5xl md:text-6xl font-bold tabular-nums tracking-tight leading-none mt-1">{counter}</div>
           <div className="flex gap-5 justify-end mt-4">
             <Link href="/admin/live" className="text-right group">
-              <div className="text-2xl font-bold tabular-nums group-hover:text-white/90">{onShift}</div>
+              <div className="text-2xl font-bold tabular-nums group-hover:text-white/90">{active.length}</div>
               <div className="text-white/60 text-xs group-hover:text-white/80">on shift</div>
             </Link>
             <div className="w-px bg-white/20" />
@@ -432,25 +430,5 @@ function RecentActivity({ shifts, timesheets }: { shifts: Shift[]; timesheets: T
         </li>
       ))}
     </ul>
-  );
-}
-
-function TimeTracker({ active }: { active: Shift[] }) {
-  const now = useNow(1000);
-  const totalMs = active.reduce((sum, s) => sum + (now - s.startedAt), 0);
-  return (
-    <div className="card p-5 relative overflow-hidden text-white grad-ocean-dark transition hover:shadow-lg">
-      <div className="pointer-events-none absolute -top-10 -right-6 w-40 h-40 rounded-full bg-white/10 blur-2xl" />
-      <div className="relative">
-        <h2 className="font-semibold text-lg">Time Tracker</h2>
-        <p className="text-white/70 text-xs mb-4">Total live time across active shifts</p>
-        <div className="text-4xl font-bold tabular-nums">
-          {active.length ? elapsed(0, totalMs) : "00:00:00"}
-        </div>
-        <div className="text-white/80 text-sm mt-2">
-          {active.length} worker{active.length === 1 ? "" : "s"} on shift
-        </div>
-      </div>
-    </div>
   );
 }

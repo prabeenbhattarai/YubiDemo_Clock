@@ -91,9 +91,6 @@ function csvClock(ms?: number): string {
     .toUpperCase()
     .replace(/\s/g, " ");
 }
-function csvHrs(min: number): string {
-  return String(Math.round((min / 60) * 100) / 100);
-}
 const STATUS_TEXT: Record<string, string> = {
   approved: "Approved",
   declined: "Not Approved",
@@ -103,44 +100,46 @@ const STATUS_TEXT: Record<string, string> = {
   active: "Active",
 };
 
+/** Clean site name: the street/first segment only (drops suburb/state/country). */
+function cleanSite(label: string): string {
+  return (label || "").split(",")[0].trim() || label;
+}
+function hoursNum(min: number): number {
+  return Math.round((min / 60) * 100) / 100;
+}
+
 /**
- * Grouped-by-site worklog CSV, matching the client's spreadsheet layout:
- *   Site: <name>
- *   S.N, Date, Time, Total Hours, Status
- *   1, 11-Aug-26, 6:00 AM – 5:30 PM, 11, Approved
+ * Grouped-by-site worklog as a real .xlsx (matches the client's spreadsheet):
+ *   Site: <clean name>
+ *   S.N | Date | Time | Total Hours | Status
+ *   1   | 11-Aug-26 | 6:00 AM – 5:30 PM | 11 | Approved
  *   ...
- *   , , Total, <site total>,
+ *       |      | Total | <site total> |
  */
-function downloadHoursCsv(
+async function downloadHoursXlsx(
   groups: { label: string; entries: ExportEntry[]; totalMinutes: number }[],
   filename: string
 ) {
-  const esc = (v: string | number) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const lines: string[] = [];
+  const XLSX = await import("xlsx");
+  const aoa: (string | number)[][] = [];
   for (const g of groups) {
-    lines.push(esc(`Site: ${g.label}`));
-    lines.push(["S.N", "Date", "Time", "Total Hours", "Status"].map(esc).join(","));
+    aoa.push([`Site: ${cleanSite(g.label)}`]);
+    aoa.push(["S.N", "Date", "Time", "Total Hours", "Status"]);
     g.entries.forEach((e, i) => {
       const time = e.inMs || e.outMs ? `${csvClock(e.inMs)} – ${csvClock(e.outMs)}` : "";
-      lines.push(
-        [i + 1, csvDate(e.dateKey), time, csvHrs(e.totalMinutes), STATUS_TEXT[e.status ?? ""] ?? ""]
-          .map(esc)
-          .join(",")
-      );
+      aoa.push([i + 1, csvDate(e.dateKey), time, hoursNum(e.totalMinutes), STATUS_TEXT[e.status ?? ""] ?? ""]);
     });
-    lines.push(["", "", "Total", csvHrs(g.totalMinutes), ""].map(esc).join(","));
-    lines.push("");
+    aoa.push(["", "", "Total", hoursNum(g.totalMinutes), ""]);
+    aoa.push([]);
   }
   const grand = groups.reduce((s, g) => s + g.totalMinutes, 0);
-  lines.push(["", "", "GRAND TOTAL", csvHrs(grand), ""].map(esc).join(","));
+  aoa.push(["", "", "GRAND TOTAL", hoursNum(grand), ""]);
 
-  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 6 }, { wch: 12 }, { wch: 22 }, { wch: 12 }, { wch: 14 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Worklog");
+  XLSX.writeFile(wb, filename);
 }
 
 /** Site-grouped hours tables (used on-screen and inside print areas). */
@@ -335,7 +334,7 @@ function TimesheetsReport() {
         <div className="flex gap-2 ml-auto self-end pb-1">
           <button className="btn-primary" onClick={() => setAdding(true)}>+ Add timesheet</button>
           <button className="btn-outline" disabled={exportGroups.length === 0}
-            onClick={() => downloadHoursCsv(exportGroups, `yubi-timesheets-${new Date().toISOString().slice(0, 10)}.csv`)}>
+            onClick={() => downloadHoursXlsx(exportGroups, `yubi-timesheets-${new Date().toISOString().slice(0, 10)}.xlsx`)}>
             Export Excel
           </button>
           <button className="btn-outline" disabled={exportGroups.length === 0} onClick={() => window.print()}>
@@ -495,7 +494,7 @@ function ShiftsReport() {
         from={from} setFrom={setFrom} to={to} setTo={setTo}
         locations={locations}
         disabled={groups.length === 0}
-        onCsv={() => downloadHoursCsv(groups, `yubi-clockin-shifts-${new Date().toISOString().slice(0, 10)}.csv`)}
+        onCsv={() => downloadHoursXlsx(groups, `yubi-clockin-shifts-${new Date().toISOString().slice(0, 10)}.xlsx`)}
       />
 
       <p className="text-xs text-[var(--color-muted)] mb-3 no-print">

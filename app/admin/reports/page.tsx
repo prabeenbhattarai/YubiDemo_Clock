@@ -18,6 +18,7 @@ import {
   fortnightLabel,
 } from "@/lib/fortnight";
 import { Spinner, EmptyState, StatusPill } from "@/components/ui";
+import Modal from "@/components/modal";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/confirm";
 import { PasswordProvider, useRequirePassword } from "@/components/password-gate";
@@ -30,6 +31,7 @@ import {
   IconChevronDown,
 } from "@/components/icons";
 import { EditShift, EditTimesheet } from "@/app/admin/approvals/page";
+import PlaceSearch from "@/components/place-search";
 
 const ALL = "all";
 type Tab = "timesheets" | "shifts";
@@ -71,34 +73,66 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 /* ===================== shared: grouped hours export ===================== */
 
 /** Build a grouped CSV (Excel-openable) with a Job title column and download it. */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function csvDate(dateKey: string): string {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  if (!y || !m || !d) return dateKey;
+  return `${String(d).padStart(2, "0")}-${MONTHS[m - 1]}-${String(y).slice(2)}`;
+}
+function csvClock(ms?: number): string {
+  if (!ms) return "";
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Sydney",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  })
+    .format(new Date(ms))
+    .toUpperCase()
+    .replace(/\s/g, " ");
+}
+function csvHrs(min: number): string {
+  return String(Math.round((min / 60) * 100) / 100);
+}
+const STATUS_TEXT: Record<string, string> = {
+  approved: "Approved",
+  declined: "Not Approved",
+  pending: "Pending",
+  on_hold: "On hold",
+  edited: "Edited",
+  active: "Active",
+};
+
+/**
+ * Grouped-by-site worklog CSV, matching the client's spreadsheet layout:
+ *   Site: <name>
+ *   S.N, Date, Time, Total Hours, Status
+ *   1, 11-Aug-26, 6:00 AM – 5:30 PM, 11, Approved
+ *   ...
+ *   , , Total, <site total>,
+ */
 function downloadHoursCsv(
   groups: { label: string; entries: ExportEntry[]; totalMinutes: number }[],
   filename: string
 ) {
   const esc = (v: string | number) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const hrs = (m: number) => (m / 60).toFixed(2);
   const lines: string[] = [];
   for (const g of groups) {
     lines.push(esc(`Site: ${g.label}`));
-    lines.push(["Job title", "Worker", "Date", "Time In", "Time Out", "Break (min)", "Total Hours"].map(esc).join(","));
-    for (const e of g.entries) {
+    lines.push(["S.N", "Date", "Time", "Total Hours", "Status"].map(esc).join(","));
+    g.entries.forEach((e, i) => {
+      const time = e.inMs || e.outMs ? `${csvClock(e.inMs)} – ${csvClock(e.outMs)}` : "";
       lines.push(
-        [
-          e.jobTitle || "",
-          e.workerName,
-          e.dateKey,
-          e.inMs ? formatAuTime(e.inMs) : "",
-          e.outMs ? formatAuTime(e.outMs) : "",
-          e.breakMinutes,
-          hrs(e.totalMinutes),
-        ].map(esc).join(",")
+        [i + 1, csvDate(e.dateKey), time, csvHrs(e.totalMinutes), STATUS_TEXT[e.status ?? ""] ?? ""]
+          .map(esc)
+          .join(",")
       );
-    }
-    lines.push(["", "", "", "", "", "Site total", hrs(g.totalMinutes)].map(esc).join(","));
+    });
+    lines.push(["", "", "Total", csvHrs(g.totalMinutes), ""].map(esc).join(","));
     lines.push("");
   }
   const grand = groups.reduce((s, g) => s + g.totalMinutes, 0);
-  lines.push(["", "", "", "", "", "GRAND TOTAL", hrs(grand)].map(esc).join(","));
+  lines.push(["", "", "GRAND TOTAL", csvHrs(grand), ""].map(esc).join(","));
 
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -238,6 +272,7 @@ function TimesheetsReport() {
   const [period, setPeriod] = useState(() => fortnightStartKey(new Date().toISOString().slice(0, 10)));
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [editTs, setEditTs] = useState<Timesheet | null>(null);
+  const [adding, setAdding] = useState(false);
 
   // Only timesheets (no clock-in shifts) — completely separate export.
   const entries = useMemo(
@@ -298,15 +333,18 @@ function TimesheetsReport() {
           {groups.length} worker{groups.length === 1 ? "" : "s"}
         </span>
         <div className="flex gap-2 ml-auto self-end pb-1">
+          <button className="btn-primary" onClick={() => setAdding(true)}>+ Add timesheet</button>
           <button className="btn-outline" disabled={exportGroups.length === 0}
             onClick={() => downloadHoursCsv(exportGroups, `yubi-timesheets-${new Date().toISOString().slice(0, 10)}.csv`)}>
             Export Excel
           </button>
-          <button className="btn-primary" disabled={exportGroups.length === 0} onClick={() => window.print()}>
+          <button className="btn-outline" disabled={exportGroups.length === 0} onClick={() => window.print()}>
             Download PDF
           </button>
         </div>
       </div>
+
+      {adding && <AddTimesheetModal onClose={() => setAdding(false)} />}
 
       {/* Print-only timesheet hours report */}
       <div className="print-area hidden print:block">
@@ -485,5 +523,113 @@ function ShiftsReport() {
 
       {editShift && <EditShift shift={editShift} onClose={() => setEditShift(null)} />}
     </div>
+  );
+}
+
+/* ===================== admin: add casual timesheet ===================== */
+
+function AddTimesheetModal({ onClose }: { onClose: () => void }) {
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [loc, setLoc] = useState("");
+  const [lat, setLat] = useState<number | null>(null);
+  const [lng, setLng] = useState<number | null>(null);
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [start, setStart] = useState("07:00");
+  const [end, setEnd] = useState("15:30");
+  const [brk, setBrk] = useState("30");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  function epoch(dateStr: string, hhmm: string, plusDay = 0): number {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const [h, mi] = hhmm.split(":").map(Number);
+    return new Date(y, m - 1, d + plusDay, h, mi, 0, 0).getTime();
+  }
+
+  async function save() {
+    setErr("");
+    if (!loc.trim()) return setErr("Enter a location.");
+    if (!date || !start || !end) return setErr("Date, start and end are required.");
+    const startAt = epoch(date, start);
+    let endAt = epoch(date, end);
+    if (endAt <= startAt) endAt = epoch(date, end, 1); // overnight
+    setSaving(true);
+    const res = await fetch("/api/admin/timesheets", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        workerName: name,
+        siteLabel: loc,
+        placeAddress: loc,
+        location: lat != null && lng != null ? { lat, lng } : null,
+        startAt,
+        endAt,
+        breakMinutes: Number(brk) || 0,
+        breakPaid: false,
+        periodStart: fortnightStartKey(auDateKey(startAt)),
+      }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      toast.success("Timesheet added", name.trim() || "Casual");
+      onClose();
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setErr(d.error || "Could not add timesheet");
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Add timesheet (casual)"
+      footer={
+        <>
+          <button className="btn-outline" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={save} disabled={saving}>
+            {saving ? <Spinner /> : "Add timesheet"}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <div>
+          <label className="label">Name (optional)</label>
+          <input className="input" placeholder="Leave blank for “Casual”" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Location / site</label>
+          <PlaceSearch
+            defaultValue={loc}
+            placeholder="Search a place or address…"
+            onChange={(p) => {
+              setLoc(p.address);
+              if ("lat" in p) { setLat(p.lat); setLng(p.lng); } else { setLat(null); setLng(null); }
+            }}
+          />
+        </div>
+        <div>
+          <label className="label">Date</label>
+          <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <label className="label">Start</label>
+            <input type="time" className="input" value={start} onChange={(e) => setStart(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">End</label>
+            <input type="time" className="input" value={end} onChange={(e) => setEnd(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Break (min)</label>
+            <input type="number" min={0} step={5} className="input" value={brk} onChange={(e) => setBrk(e.target.value)} />
+          </div>
+        </div>
+        {err && <p className="text-sm text-[var(--color-danger)]">{err}</p>}
+      </div>
+    </Modal>
   );
 }

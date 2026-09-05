@@ -186,6 +186,7 @@ export interface ExportEntry {
   outMs?: number;
   breakMinutes: number;
   totalMinutes: number;
+  status?: string;
   source: "Clock-in" | "Timesheet";
 }
 
@@ -212,6 +213,7 @@ export function buildSiteEntries(
       outMs: s.payEnd ?? s.endedAt,
       breakMinutes: s.breakMinutes ?? 0,
       totalMinutes: shiftWorkedMinutes(s),
+      status: s.approvalStatus,
       source: "Clock-in",
     });
   }
@@ -227,6 +229,7 @@ export function buildSiteEntries(
       outMs: t.adminEndAt ?? t.endAt,
       breakMinutes: t.adminBreakMinutes ?? t.breakMinutes ?? 0,
       totalMinutes: timesheetWorkedMinutes(t),
+      status: t.status,
       source: "Timesheet",
     });
   }
@@ -241,9 +244,12 @@ export function groupByLocation(entries: ExportEntry[]): {
 }[] {
   const groups = new Map<string, { label: string; entries: ExportEntry[] }>();
   for (const e of entries) {
-    const key = normalizeLoc(e.location) || "unspecified";
+    const key = normalizeLoc((e.location || "").split(",")[0]) || "unspecified";
     if (!groups.has(key)) groups.set(key, { label: e.location || "Unspecified", entries: [] });
-    groups.get(key)!.entries.push(e);
+    const g = groups.get(key)!;
+    // Prefer the shortest non-empty label as the clean site name.
+    if (e.location && e.location.length < g.label.length) g.label = e.location;
+    g.entries.push(e);
   }
   return [...groups.values()]
     .map((g) => ({

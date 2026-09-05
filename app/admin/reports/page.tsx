@@ -91,52 +91,71 @@ function csvClock(ms?: number): string {
     .toUpperCase()
     .replace(/\s/g, " ");
 }
-const STATUS_TEXT: Record<string, string> = {
-  approved: "Approved",
-  declined: "Not Approved",
-  pending: "Pending",
-  on_hold: "On hold",
-  edited: "Edited",
-  active: "Active",
-};
-
-/** Clean site name: the street/first segment only (drops suburb/state/country). */
-function cleanSite(label: string): string {
-  return (label || "").split(",")[0].trim() || label;
-}
 function hoursNum(min: number): number {
   return Math.round((min / 60) * 100) / 100;
 }
 
 /**
- * Grouped-by-site worklog as a real .xlsx (matches the client's spreadsheet):
- *   Site: <clean name>
- *   S.N | Date | Time | Total Hours | Status
- *   1   | 11-Aug-26 | 6:00 AM – 5:30 PM | 11 | Approved
- *   ...
- *       |      | Total | <site total> |
+ * Grouped-by-site worklog as a styled .xlsx (highlighted headers, bordered
+ * table, complete address, no status). Columns: S.N | Date | Time | Total Hours.
  */
 async function downloadHoursXlsx(
   groups: { label: string; entries: ExportEntry[]; totalMinutes: number }[],
   filename: string
 ) {
-  const XLSX = await import("xlsx");
+  const mod = await import("xlsx-js-style");
+  const XLSX = (mod as unknown as { default?: typeof mod }).default ?? mod;
+
+  const b = { style: "thin", color: { rgb: "CBD5E1" } };
+  const borders = { top: b, bottom: b, left: b, right: b };
+  const siteStyle = { font: { bold: true, color: { rgb: "FFFFFF" }, sz: 12 }, fill: { fgColor: { rgb: "4F46E5" } }, alignment: { vertical: "center" }, border: borders };
+  const headStyle = { font: { bold: true, color: { rgb: "1E293B" } }, fill: { fgColor: { rgb: "E5E7EB" } }, border: borders, alignment: { horizontal: "center", vertical: "center" } };
+  const numStyle = { border: borders, alignment: { horizontal: "center" } };
+  const txtStyle = { border: borders, alignment: { horizontal: "left" } };
+  const totalStyle = { font: { bold: true }, fill: { fgColor: { rgb: "F1F5F9" } }, border: borders };
+  const totalNum = { font: { bold: true }, fill: { fgColor: { rgb: "F1F5F9" } }, border: borders, alignment: { horizontal: "center" } };
+  const grandStyle = { font: { bold: true, sz: 12 }, fill: { fgColor: { rgb: "C7D2FE" } }, border: borders };
+  const grandNum = { font: { bold: true, sz: 12 }, fill: { fgColor: { rgb: "C7D2FE" } }, border: borders, alignment: { horizontal: "center" } };
+
   const aoa: (string | number)[][] = [];
+  const meta: string[] = [];
+  const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = [];
+  let r = 0;
+  const push = (row: (string | number)[], type: string) => { aoa.push(row); meta.push(type); r++; };
+
   for (const g of groups) {
-    aoa.push([`Site: ${cleanSite(g.label)}`]);
-    aoa.push(["S.N", "Date", "Time", "Total Hours", "Status"]);
+    const fullAddr = g.entries.reduce((a, e) => (e.location && e.location.length > a.length ? e.location : a), "") || g.label || "Unspecified";
+    merges.push({ s: { r, c: 0 }, e: { r, c: 3 } });
+    push([`Site: ${fullAddr}`, "", "", ""], "site");
+    push(["S.N", "Date", "Time", "Total Hours"], "head");
     g.entries.forEach((e, i) => {
       const time = e.inMs || e.outMs ? `${csvClock(e.inMs)} – ${csvClock(e.outMs)}` : "";
-      aoa.push([i + 1, csvDate(e.dateKey), time, hoursNum(e.totalMinutes), STATUS_TEXT[e.status ?? ""] ?? ""]);
+      push([i + 1, csvDate(e.dateKey), time, hoursNum(e.totalMinutes)], "data");
     });
-    aoa.push(["", "", "Total", hoursNum(g.totalMinutes), ""]);
-    aoa.push([]);
+    merges.push({ s: { r, c: 0 }, e: { r, c: 2 } });
+    push(["Total", "", "", hoursNum(g.totalMinutes)], "total");
+    push([], "blank");
   }
   const grand = groups.reduce((s, g) => s + g.totalMinutes, 0);
-  aoa.push(["", "", "GRAND TOTAL", hoursNum(grand), ""]);
+  merges.push({ s: { r, c: 0 }, e: { r, c: 2 } });
+  push(["GRAND TOTAL", "", "", hoursNum(grand)], "grand");
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws["!cols"] = [{ wch: 6 }, { wch: 12 }, { wch: 22 }, { wch: 12 }, { wch: 14 }];
+  for (let rr = 0; rr < aoa.length; rr++) {
+    const type = meta[rr];
+    if (type === "blank") continue;
+    for (let c = 0; c < 4; c++) {
+      const ref = XLSX.utils.encode_cell({ r: rr, c });
+      if (!ws[ref]) ws[ref] = { t: "s", v: "" };
+      if (type === "site") ws[ref].s = siteStyle;
+      else if (type === "head") ws[ref].s = headStyle;
+      else if (type === "total") ws[ref].s = c === 3 ? totalNum : totalStyle;
+      else if (type === "grand") ws[ref].s = c === 3 ? grandNum : grandStyle;
+      else ws[ref].s = c === 0 || c === 3 ? numStyle : txtStyle;
+    }
+  }
+  ws["!cols"] = [{ wch: 7 }, { wch: 14 }, { wch: 26 }, { wch: 12 }];
+  ws["!merges"] = merges;
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Worklog");
   XLSX.writeFile(wb, filename);

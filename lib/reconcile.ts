@@ -236,6 +236,38 @@ export function buildSiteEntries(
   return out;
 }
 
+const STREET_TYPE: Record<string, string> = {
+  street: "st", st: "st",
+  road: "rd", rd: "rd",
+  avenue: "ave", ave: "ave", av: "ave",
+  drive: "dr", dr: "dr",
+  lane: "ln", ln: "ln",
+  place: "pl", pl: "pl",
+  court: "ct", ct: "ct",
+  crescent: "cres", cres: "cres", cr: "cres",
+  highway: "hwy", hwy: "hwy",
+  parade: "pde", pde: "pde",
+  terrace: "tce", tce: "tce",
+  boulevard: "blvd", blvd: "blvd", bvd: "blvd",
+  square: "sq", sq: "sq",
+  close: "cl", cl: "cl",
+};
+
+/**
+ * A grouping key for a work location: the first address segment (street), with
+ * common street-type words canonicalised so "55 George Street" and
+ * "55 George St, The Rocks" resolve to the same site.
+ */
+function siteKey(loc: string): string {
+  const first = normalizeLoc((loc || "").split(",")[0]);
+  if (!first) return "unspecified";
+  return first
+    .split(" ")
+    .map((w) => STREET_TYPE[w] ?? w)
+    .join(" ")
+    .trim();
+}
+
 /** Group entries by location (normalized), keeping a display label. */
 export function groupByLocation(entries: ExportEntry[]): {
   label: string;
@@ -244,7 +276,7 @@ export function groupByLocation(entries: ExportEntry[]): {
 }[] {
   const groups = new Map<string, { label: string; entries: ExportEntry[] }>();
   for (const e of entries) {
-    const key = normalizeLoc((e.location || "").split(",")[0]) || "unspecified";
+    const key = siteKey(e.location);
     if (!groups.has(key)) groups.set(key, { label: e.location || "Unspecified", entries: [] });
     const g = groups.get(key)!;
     // Prefer the shortest non-empty label as the clean site name.

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCurrentUid, useLiveCollection, where } from "@/lib/live";
-import type { Timesheet } from "@/lib/types";
+import type { Site, Timesheet } from "@/lib/types";
 import { computeWorkedMinutes, formatAuDateTime, minutesToHhMm } from "@/lib/time";
 import {
   listFortnights,
@@ -189,6 +189,7 @@ function rowMinutes(r: Row): number {
 
 function FortnightGrid({ onDone }: { onDone: () => void }) {
   const periods = useMemo(() => listFortnights(), []);
+  const { data: sites } = useLiveCollection<Site>("sites", []);
   const [periodStart, setPeriodStart] = useState(() => fortnightStartKey(auDateKey(Date.now())));
   const [rows, setRows] = useState<Row[]>(() => buildRows(periodStart));
   const [saving, setSaving] = useState(false);
@@ -371,7 +372,7 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
       {/* One card per day */}
       <div className="space-y-2.5">
         {rows.map((r, i) => (
-          <DayRow key={r.dayKey} row={r} minutes={perDay[i]} onChange={(patch) => update(i, patch)} />
+          <DayRow key={r.dayKey} row={r} minutes={perDay[i]} sites={sites} onChange={(patch) => update(i, patch)} />
         ))}
       </div>
 
@@ -413,10 +414,12 @@ const cellInput =
 function DayRow({
   row,
   minutes,
+  sites,
   onChange,
 }: {
   row: Row;
   minutes: number;
+  sites: Site[];
   onChange: (patch: Partial<Row>) => void;
 }) {
   const worked = minutes > 0;
@@ -429,7 +432,22 @@ function DayRow({
         </span>
       </div>
 
-      <PlaceSearch className={`${cellInput} mb-2`} placeholder="Location / site…" defaultValue={row.loc} onChange={(p) =>
+      {sites.length > 0 && (
+        <select
+          className={`${cellInput} mb-1.5`}
+          value=""
+          onChange={(e) => {
+            const site = sites.find((x) => x.id === e.target.value);
+            if (site) onChange({ loc: site.name, lat: site.location?.lat, lng: site.location?.lng });
+          }}
+        >
+          <option value="">Pick a saved site…</option>
+          {sites.map((site) => (
+            <option key={site.id} value={site.id}>{site.name}</option>
+          ))}
+        </select>
+      )}
+      <PlaceSearch className={`${cellInput} mb-2`} placeholder={sites.length ? "…or type an address" : "Location / site…"} defaultValue={row.loc} onChange={(p) =>
         onChange({ loc: p.address, lat: "lat" in p ? p.lat : undefined, lng: "lat" in p ? p.lng : undefined })
       } />
 

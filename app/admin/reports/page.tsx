@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useLiveCollection } from "@/lib/live";
-import type { Shift, Timesheet, Worker } from "@/lib/types";
+import type { Shift, Site, Timesheet, Worker } from "@/lib/types";
 import { formatAuTime, minutesToHhMm } from "@/lib/time";
 import {
   buildSiteEntries,
@@ -530,6 +530,7 @@ function ShiftsReport() {
 
 function AddTimesheetModal({ onClose }: { onClose: () => void }) {
   const toast = useToast();
+  const { data: sites } = useLiveCollection<Site>("sites", []);
   const [name, setName] = useState("");
   const [loc, setLoc] = useState("");
   const [lat, setLat] = useState<number | null>(null);
@@ -601,9 +602,24 @@ function AddTimesheetModal({ onClose }: { onClose: () => void }) {
         </div>
         <div>
           <label className="label">Location / site</label>
+          {sites.length > 0 && (
+            <select
+              className="input mb-2"
+              value=""
+              onChange={(e) => {
+                const site = sites.find((x) => x.id === e.target.value);
+                if (site) { setLoc(site.name); setLat(site.location?.lat ?? null); setLng(site.location?.lng ?? null); }
+              }}
+            >
+              <option value="">Pick a saved site…</option>
+              {sites.map((site) => (
+                <option key={site.id} value={site.id}>{site.name}</option>
+              ))}
+            </select>
+          )}
           <PlaceSearch
             defaultValue={loc}
-            placeholder="Search a place or address…"
+            placeholder={sites.length ? "…or type an address" : "Search a place or address…"}
             onChange={(p) => {
               setLoc(p.address);
               if ("lat" in p) { setLat(p.lat); setLng(p.lng); } else { setLat(null); setLng(null); }

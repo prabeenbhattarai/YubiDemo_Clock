@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { orderBy, useLiveCollection } from "@/lib/live";
-import type { ApprovalStatus, Shift, Site, Timesheet } from "@/lib/types";
+import type { ApprovalStatus, Shift, Site, Timesheet, Worker } from "@/lib/types";
 import { formatAuDateTime, minutesToHhMm, shiftWorkedMinutes } from "@/lib/time";
 import { StatusPill, Spinner, EmptyState } from "@/components/ui";
 import Modal from "@/components/modal";
@@ -197,12 +197,31 @@ export function EditTimesheet({ ts, onClose }: { ts: Timesheet; onClose: () => v
   const [saving, setSaving] = useState(false);
   const toast = useToast();
 
+  const { data: workers } = useLiveCollection<Worker>("workers", []);
+  const workerList = useMemo(
+    () => workers.filter((w) => w.active !== false).sort((a, b) => a.name.localeCompare(b.name)),
+    [workers]
+  );
+  const [workerId, setWorkerId] = useState("");
+  // Preselect the timesheet's current worker once the list has loaded.
+  useEffect(() => {
+    if (workerId) return;
+    const match = workers.find(
+      (w) => (ts.workerUid && w.uid === ts.workerUid) || (ts.workerId && w.id === ts.workerId)
+    );
+    if (match) setWorkerId(match.id);
+  }, [workers, ts.workerUid, ts.workerId, workerId]);
+
   async function save() {
+    const w = workerList.find((x) => x.id === workerId);
     setSaving(true);
     const ok = await act(`/api/admin/approvals/timesheet/${ts.id}`, "edit", note, {
       startAt: new Date(start).getTime(),
       endAt: new Date(end).getTime(),
       breakMinutes: Number(breakMin),
+      workerName: w?.name ?? "",
+      workerUid: w?.uid ?? null,
+      workerId: w?.id ?? null,
     }, toast);
     setSaving(false);
     if (ok) onClose();
@@ -223,6 +242,13 @@ export function EditTimesheet({ ts, onClose }: { ts: Timesheet; onClose: () => v
       }
     >
       <div className="space-y-3">
+        <label className="label">Worker</label>
+        <select className="input" value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
+          <option value="">Casual (no registered worker)</option>
+          {workerList.map((w) => (
+            <option key={w.id} value={w.id}>{w.name}{w.jobTitle ? ` — ${w.jobTitle}` : ""}</option>
+          ))}
+        </select>
         <label className="label">Start</label>
         <input type="datetime-local" className="input" value={start} onChange={(e) => setStart(e.target.value)} />
         <label className="label">End</label>

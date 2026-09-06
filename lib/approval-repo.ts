@@ -90,6 +90,10 @@ export interface TimesheetEdit {
   endAt?: number;
   breakMinutes?: BreakMinutes;
   breakPaid?: boolean;
+  /** Reassign the timesheet to a registered worker (or clear to casual). */
+  workerName?: string;
+  workerUid?: string | null;
+  workerId?: string | null;
 }
 
 export async function updateTimesheetApproval(params: {
@@ -123,6 +127,13 @@ export async function updateTimesheetApproval(params: {
     update.adminEndAt = endAt;
     update.adminBreakMinutes = breakMinutes;
     update.adminTotalMinutes = total;
+    // Optional worker reassignment (admin picks from the worker dropdown).
+    if (edit.workerName != null) update.workerName = edit.workerName.trim() || "Casual";
+    if (edit.workerUid !== undefined) {
+      update.workerUid = edit.workerUid ?? null;
+      update.workerId = edit.workerId ?? null;
+      update.casual = !edit.workerUid;
+    }
   }
 
   const entry: HistoryEntry = {

@@ -29,29 +29,109 @@ import {
   IconTrash,
   IconPause,
   IconChevronDown,
+  IconMapPin,
 } from "@/components/icons";
 import { EditShift, EditTimesheet } from "@/app/admin/approvals/page";
 import PlaceSearch from "@/components/place-search";
 
 const ALL = "all";
+const SITE_ALL = "__all__"; // reports across every site
 type Tab = "timesheets" | "shifts";
+
+/**
+ * Does a record belong to the chosen site? Records carry a siteId once a site
+ * is picked; legacy/casual records without one are matched by label, and in a
+ * single-site system they all roll up to that site.
+ */
+function belongsToSite(
+  rec: { siteId?: string | null; siteLabel?: string; siteName?: string },
+  siteId: string,
+  sites: Site[]
+): boolean {
+  if (siteId === SITE_ALL) return true;
+  if (rec.siteId) return rec.siteId === siteId;
+  const site = sites.find((s) => s.id === siteId);
+  const label = (rec.siteLabel || rec.siteName || "").trim().toLowerCase();
+  if (site && label && label === site.name.trim().toLowerCase()) return true;
+  return sites.length <= 1; // one-site system: unassigned rolls up to the site
+}
 
 export default function ReportsPage() {
   const [tab, setTab] = useState<Tab>("timesheets");
+  const { data: sites } = useLiveCollection<Site>("sites", []);
+  const activeSites = useMemo(() => sites.filter((s) => s.active !== false), [sites]);
+  const [siteId, setSiteId] = useState<string | null>(null); // null → choose first
+
+  // ---- Step 1: choose a site/project before showing any details ----
+  if (siteId === null) {
+    return (
+      <PasswordProvider>
+        <div>
+          <h1 className="text-2xl font-bold">Reports</h1>
+          <p className="text-[var(--color-muted)] text-sm mb-5">Choose a site/project to review and export its hours.</p>
+          <div className="card p-4 max-w-lg">
+            <h2 className="font-semibold mb-1">Which site / project?</h2>
+            <p className="text-xs text-[var(--color-muted)] mb-3">
+              Pick one site, or view everything across all sites.
+            </p>
+            <div className="space-y-2">
+              <button
+                onClick={() => setSiteId(SITE_ALL)}
+                className="w-full flex items-center gap-3 rounded-xl border border-[var(--color-line)] px-3 py-3 text-left hover:bg-[var(--color-canvas)]"
+              >
+                <span className="w-9 h-9 rounded-full bg-brand-100 text-brand-700 grid place-items-center shrink-0"><IconClipboard size={18} /></span>
+                <span className="min-w-0">
+                  <span className="block font-medium">All sites</span>
+                  <span className="block text-xs text-[var(--color-muted)]">Everything across every site/project</span>
+                </span>
+              </button>
+              {activeSites.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setSiteId(s.id)}
+                  className="w-full flex items-center gap-3 rounded-xl border border-[var(--color-line)] px-3 py-3 text-left hover:bg-[var(--color-canvas)]"
+                >
+                  <span className="w-9 h-9 rounded-full bg-ocean-50 text-ocean-700 grid place-items-center shrink-0"><IconMapPin size={18} /></span>
+                  <span className="min-w-0">
+                    <span className="block font-medium truncate">{s.name}</span>
+                    {s.address && <span className="block text-xs text-[var(--color-muted)] truncate">{s.address}</span>}
+                  </span>
+                </button>
+              ))}
+              {activeSites.length === 0 && (
+                <p className="text-sm text-[var(--color-muted)]">No saved sites yet — use “All sites”.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </PasswordProvider>
+    );
+  }
+
+  const siteName = siteId === SITE_ALL ? "All sites" : sites.find((s) => s.id === siteId)?.name ?? "Site";
+
+  // ---- Step 2: the report, scoped to the chosen site ----
   return (
     <PasswordProvider>
       <div>
-        <h1 className="text-2xl font-bold">Reports</h1>
-        <p className="text-[var(--color-muted)] text-sm mb-5">
-          Review and export hours — timesheets and clock-in shifts are kept separate.
-        </p>
+        <div className="flex items-start justify-between gap-3 no-print">
+          <div>
+            <h1 className="text-2xl font-bold">Reports</h1>
+            <p className="text-[var(--color-muted)] text-sm mb-3">
+              <span className="font-medium text-[var(--color-ink)]">{siteName}</span> · timesheets and clock-in shifts are kept separate.
+            </p>
+          </div>
+          <button className="btn-outline shrink-0" onClick={() => setSiteId(null)}>Change site</button>
+        </div>
 
         <div className="flex gap-2 mb-5 no-print">
           <TabBtn active={tab === "timesheets"} onClick={() => setTab("timesheets")}>Timesheets</TabBtn>
           <TabBtn active={tab === "shifts"} onClick={() => setTab("shifts")}>Clock-in shift</TabBtn>
         </div>
 
-        {tab === "timesheets" ? <TimesheetsReport /> : <ShiftsReport />}
+        {tab === "timesheets"
+          ? <TimesheetsReport siteId={siteId} sites={sites} />
+          : <ShiftsReport siteId={siteId} sites={sites} />}
       </div>
     </PasswordProvider>
   );
@@ -281,7 +361,7 @@ function rangeLabel(from: string, to: string) {
 
 /* ===================== TIMESHEETS (only timesheets) ===================== */
 
-function TimesheetsReport() {
+function TimesheetsReport({ siteId, sites }: { siteId: string; sites: Site[] }) {
   const { data: timesheets, loading } = useLiveCollection<Timesheet>("timesheets", []);
   const { data: workers } = useLiveCollection<Worker>("workers", []);
   const toast = useToast();
@@ -292,17 +372,23 @@ function TimesheetsReport() {
   const [editTs, setEditTs] = useState<Timesheet | null>(null);
   const [adding, setAdding] = useState(false);
 
+  // Scope to the chosen site/project first.
+  const visibleTs = useMemo(
+    () => timesheets.filter((t) => belongsToSite(t, siteId, sites)),
+    [timesheets, siteId, sites]
+  );
+
   // Only timesheets (no clock-in shifts) — completely separate export.
   const entries = useMemo(
-    () => buildSiteEntries([], timesheets, workers).filter((e) => period === ALL || isWithinFortnight(e.dateKey, period)),
-    [timesheets, workers, period]
+    () => buildSiteEntries([], visibleTs, workers).filter((e) => period === ALL || isWithinFortnight(e.dateKey, period)),
+    [visibleTs, workers, period]
   );
   const exportGroups = useMemo(() => groupByLocation(entries), [entries]);
   const exportTotal = exportGroups.reduce((s, g) => s + g.totalMinutes, 0);
 
   const groups = useMemo(() => {
     const titleByUid = new Map(workers.filter((w) => w.uid).map((w) => [w.uid!, w.jobTitle || ""]));
-    const inPeriod = timesheets.filter((t) => period === ALL || isWithinFortnight(auDateKey(t.startAt), period));
+    const inPeriod = visibleTs.filter((t) => period === ALL || isWithinFortnight(auDateKey(t.startAt), period));
     const m = new Map<string, { key: string; name: string; jobTitle: string; items: Timesheet[] }>();
     for (const t of inPeriod) {
       const key = t.workerUid || t.workerName;
@@ -317,7 +403,7 @@ function TimesheetsReport() {
         pending: g.items.filter((t) => t.status === "pending").length,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [timesheets, workers, period]);
+  }, [visibleTs, workers, period]);
 
   async function act(id: string, action: "approve" | "on_hold") {
     const r = await fetch(`/api/admin/approvals/timesheet/${id}`, {
@@ -456,15 +542,21 @@ function TimesheetsReport() {
 
 /* ===================== CLOCK-IN SHIFT (only clock-ins) ===================== */
 
-function ShiftsReport() {
+function ShiftsReport({ siteId, sites }: { siteId: string; sites: Site[] }) {
   const { data: shifts } = useLiveCollection<Shift>("shifts", []);
   const { data: workers } = useLiveCollection<Worker>("workers", []);
   const toast = useToast();
   const requirePassword = useRequirePassword();
   const [editShift, setEditShift] = useState<Shift | null>(null);
 
+  // Scope to the chosen site/project first.
+  const visibleShifts = useMemo(
+    () => shifts.filter((s) => belongsToSite(s, siteId, sites)),
+    [shifts, siteId, sites]
+  );
+
   // Only completed clock-in shifts (no timesheets).
-  const allEntries = useMemo(() => buildSiteEntries(shifts, [], workers), [shifts, workers]);
+  const allEntries = useMemo(() => buildSiteEntries(visibleShifts, [], workers), [visibleShifts, workers]);
   const locations = useMemo(() => Array.from(new Set(allEntries.map((e) => e.location))).sort(), [allEntries]);
 
   const [loc, setLoc] = useState("all");
@@ -549,7 +641,12 @@ function ShiftsReport() {
 function AddTimesheetModal({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const { data: sites } = useLiveCollection<Site>("sites", []);
-  const [name, setName] = useState("");
+  const { data: workers } = useLiveCollection<Worker>("workers", []);
+  const workerList = useMemo(
+    () => workers.filter((w) => w.active !== false).sort((a, b) => a.name.localeCompare(b.name)),
+    [workers]
+  );
+  const [workerId, setWorkerId] = useState(""); // "" = casual (no registered worker)
   const [loc, setLoc] = useState("");
   const [lat, setLat] = useState<number | null>(null);
   const [lng, setLng] = useState<number | null>(null);
@@ -574,12 +671,15 @@ function AddTimesheetModal({ onClose }: { onClose: () => void }) {
     const startAt = epoch(date, start);
     let endAt = epoch(date, end);
     if (endAt <= startAt) endAt = epoch(date, end, 1); // overnight
+    const w = workerList.find((x) => x.id === workerId);
     setSaving(true);
     const res = await fetch("/api/admin/timesheets", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        workerName: name,
+        workerName: w?.name || "",
+        workerUid: w?.uid || null,
+        workerId: w?.id || null,
         siteLabel: loc,
         siteId,
         placeAddress: loc,
@@ -593,7 +693,7 @@ function AddTimesheetModal({ onClose }: { onClose: () => void }) {
     });
     setSaving(false);
     if (res.ok) {
-      toast.success("Timesheet added", name.trim() || "Casual");
+      toast.success("Timesheet added", w?.name || "Casual");
       onClose();
     } else {
       const d = await res.json().catch(() => ({}));
@@ -617,8 +717,13 @@ function AddTimesheetModal({ onClose }: { onClose: () => void }) {
     >
       <div className="space-y-3">
         <div>
-          <label className="label">Name (optional)</label>
-          <input className="input" placeholder="Leave blank for “Casual”" value={name} onChange={(e) => setName(e.target.value)} />
+          <label className="label">Worker</label>
+          <select className="input" value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
+            <option value="">Casual (no registered worker)</option>
+            {workerList.map((w) => (
+              <option key={w.id} value={w.id}>{w.name}{w.jobTitle ? ` — ${w.jobTitle}` : ""}</option>
+            ))}
+          </select>
         </div>
         <div>
           <label className="label">Location / site</label>

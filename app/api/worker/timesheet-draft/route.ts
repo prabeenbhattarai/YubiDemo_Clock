@@ -21,6 +21,9 @@ function sanitizeRows(raw: unknown): DraftRow[] {
       start: typeof r.start === "string" && HHMM.test(r.start) ? r.start : "",
       end: typeof r.end === "string" && HHMM.test(r.end) ? r.end : "",
       brk: brk.slice(0, 4),
+      loc: typeof r.loc === "string" ? r.loc.slice(0, 300) : "",
+      lat: typeof r.lat === "number" ? r.lat : null,
+      lng: typeof r.lng === "number" ? r.lng : null,
     };
   }).filter((r) => ISO.test(r.dayKey));
 }

@@ -102,6 +102,10 @@ export interface DraftRow {
   start: string; // "HH:MM"
   end: string;   // "HH:MM"
   brk: string;   // minutes as string
+  /** Per-day work location (a site can be state-wide, so each day may differ). */
+  loc?: string;
+  lat?: number | null;
+  lng?: number | null;
 }
 
 export interface TimesheetDraft {
@@ -164,6 +168,9 @@ export async function deleteTimesheetDraft(workerUid: string, periodStart: strin
  */
 export async function createAdminTimesheet(input: {
   workerName?: string;
+  /** Link to a registered worker (from the dropdown); omit for casual work. */
+  workerUid?: string | null;
+  workerId?: string | null;
   siteLabel: string;
   siteId?: string;
   placeAddress?: string;
@@ -183,16 +190,17 @@ export async function createAdminTimesheet(input: {
     !!input.breakPaid
   );
   const t = now();
+  const linked = !!input.workerUid;
   const name = (input.workerName || "").trim() || "Casual";
   const history: HistoryEntry[] = [
-    { at: t, by: input.by, action: "Added by admin (casual)", to: "pending" },
+    { at: t, by: input.by, action: linked ? "Added by admin" : "Added by admin (casual)", to: "pending" },
   ];
   if (rounded.note) history.push({ at: t, by: "system", action: rounded.note });
   const ref = await adminDb.collection(COL.timesheets).add({
-    workerId: null,
-    workerUid: null,
+    workerId: input.workerId ?? null,
+    workerUid: input.workerUid ?? null,
     workerName: name,
-    casual: true,
+    casual: !linked,
     siteLabel: input.siteLabel.trim(),
     siteId: input.siteId ?? null,
     placeAddress: input.placeAddress ?? null,

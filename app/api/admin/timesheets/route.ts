@@ -12,6 +12,8 @@ export async function POST(req: NextRequest) {
   const b = (await req.json().catch(() => null)) as
     | {
         workerName?: string;
+        workerUid?: string | null;
+        workerId?: string | null;
         siteLabel?: string;
         siteId?: string;
         placeAddress?: string;
@@ -35,6 +37,8 @@ export async function POST(req: NextRequest) {
 
   const id = await createAdminTimesheet({
     workerName: b.workerName,
+    workerUid: b.workerUid ?? null,
+    workerId: b.workerId ?? null,
     siteLabel: b.siteLabel,
     siteId: b.siteId,
     placeAddress: b.placeAddress,

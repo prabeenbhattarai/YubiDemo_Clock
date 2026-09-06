@@ -162,6 +162,9 @@ interface Row {
   start: string; // "HH:MM"
   end: string;   // "HH:MM"
   brk: string;   // minutes as string
+  loc: string;   // per-day work location (site may be state-wide)
+  lat?: number;
+  lng?: number;
 }
 
 interface ChosenSite {
@@ -169,6 +172,13 @@ interface ChosenSite {
   label: string;
   lat?: number;
   lng?: number;
+  geofenceType?: Site["geofenceType"];
+  /**
+   * A fixed single address (radius site, or a typed "Other location") — its
+   * location applies to every day. Region sites (state/country) leave this
+   * false so the worker enters a specific address for each day.
+   */
+  fixed?: boolean;
 }
 
 function buildRows(startKey: string): Row[] {
@@ -177,6 +187,7 @@ function buildRows(startKey: string): Row[] {
     start: "",
     end: "",
     brk: "",
+    loc: "",
   }));
 }
 
@@ -195,11 +206,13 @@ const cellInput =
 
 function FortnightGrid({ onDone }: { onDone: () => void }) {
   const periods = useMemo(() => listFortnights(), []);
-  const { data: sites } = useLiveCollection<Site>("sites", []);
-  const activeSites = useMemo(() => sites.filter((s) => s.active !== false), [sites]);
+  // Only the sites this worker is assigned to (fetched via the worker context).
+  const [assignedSites, setAssignedSites] = useState<Site[]>([]);
+  const [ctxLoaded, setCtxLoaded] = useState(false);
   const [periodStart, setPeriodStart] = useState(() => fortnightStartKey(auDateKey(Date.now())));
   const [site, setSite] = useState<ChosenSite | null>(null);
   const [customOpen, setCustomOpen] = useState(false);
+  const [draftReady, setDraftReady] = useState(false);
   const [rows, setRows] = useState<Row[]>(() => buildRows(periodStart));
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -209,11 +222,29 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
   const toast = useToast();
   const confirm = useConfirm();
 
+  // Load the worker's assigned sites once.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/worker/context", { cache: "no-store" });
+        const data = res.ok ? await res.json().catch(() => ({})) : {};
+        if (active && Array.isArray(data?.sites)) setAssignedSites(data.sites as Site[]);
+      } catch {
+        /* ignore — worker can still use "Other location" */
+      } finally {
+        if (active) setCtxLoaded(true);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
   // Load this period's saved draft (site + times) when the period changes.
   useEffect(() => {
     let active = true;
     (async () => {
       setDraftStatus("idle");
+      setDraftReady(false);
       try {
         const res = await fetch(`/api/worker/timesheet-draft?period=${periodStart}`, { cache: "no-store" });
         const data = res.ok ? await res.json().catch(() => ({})) : {};
@@ -232,7 +263,17 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
           const byDay = new Map((d.rows || []).map((r: Row) => [r.dayKey, r]));
           setRows(base.map((r) => {
             const x = byDay.get(r.dayKey) as Row | undefined;
-            return x ? { dayKey: r.dayKey, start: x.start || "", end: x.end || "", brk: x.brk || "" } : r;
+            return x
+              ? {
+                  dayKey: r.dayKey,
+                  start: x.start || "",
+                  end: x.end || "",
+                  brk: x.brk || "",
+                  loc: x.loc || "",
+                  lat: typeof x.lat === "number" ? x.lat : undefined,
+                  lng: typeof x.lng === "number" ? x.lng : undefined,
+                }
+              : r;
           }));
           setDraftStatus("saved");
         } else {
@@ -242,10 +283,27 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
         /* keep blank */
       } finally {
         loadedPeriod.current = periodStart;
+        if (active) setDraftReady(true);
       }
     })();
     return () => { active = false; };
   }, [periodStart]);
+
+  // Auto-select when the worker is assigned exactly one site (no picker needed).
+  useEffect(() => {
+    if (!ctxLoaded || !draftReady || site) return;
+    if (assignedSites.length === 1) {
+      const s = assignedSites[0];
+      setSite({
+        siteId: s.id,
+        label: s.name,
+        lat: s.location?.lat,
+        lng: s.location?.lng,
+        geofenceType: s.geofenceType,
+        fixed: s.geofenceType === "radius",
+      });
+    }
+  }, [ctxLoaded, draftReady, site, assignedSites]);
 
   const saveDraft = async (manual: boolean, siteArg?: ChosenSite | null, rowsArg?: Row[]) => {
     const st = siteArg !== undefined ? siteArg : site;
@@ -272,10 +330,10 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
     }
   };
 
-  // Auto-save (debounced) once loaded, a site is chosen, and there is data.
+  // Auto-save (debounced) once loaded and there is data.
   useEffect(() => {
-    if (loadedPeriod.current !== periodStart || !site) return;
-    const hasData = rows.some((r) => r.start || r.end || r.brk);
+    if (loadedPeriod.current !== periodStart) return;
+    const hasData = rows.some((r) => r.start || r.end || r.brk || r.loc);
     if (!hasData) return;
     setDraftStatus("saving");
     const t = setTimeout(() => saveDraft(false), 1200);
@@ -288,24 +346,36 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
   }
 
   function chooseSite(next: ChosenSite) {
-    setSite(next);
+    const withFixed = { ...next, fixed: next.fixed ?? next.geofenceType === "radius" };
+    setSite(withFixed);
     setCustomOpen(false);
-    saveDraft(false, next, rows);
+    saveDraft(false, withFixed, rows);
   }
 
   const perDay = useMemo(() => rows.map(rowMinutes), [rows]);
   const filledCount = perDay.filter((m) => m > 0).length;
   const totalMinutes = perDay.reduce((s, m) => s + m, 0);
 
+  // A fixed single address applies to all days; otherwise (region site or no
+  // site) the worker enters a specific work location for each day.
+  const requireDayLoc = !site || !site.fixed;
+
   async function submit() {
     setError("");
-    if (!site) { setError("Choose a site first."); return; }
     const toSubmit = rows.filter((r) => r.start && r.end);
     if (toSubmit.length === 0) { setError("Enter start and end times for at least one day."); return; }
 
+    if (requireDayLoc) {
+      const missing = toSubmit.filter((r) => !r.loc.trim());
+      if (missing.length > 0) {
+        setError(`Add a work location for: ${missing.map((r) => dayLabel(r.dayKey)).join(", ")}.`);
+        return;
+      }
+    }
+
     const ok = await confirm({
       title: "Submit timesheet?",
-      message: `Submit ${toSubmit.length} day${toSubmit.length === 1 ? "" : "s"} at ${site.label} for ${fortnightLabel(periodStart)} — ${decimalHours(totalMinutes)} h total. Your admin will review it.`,
+      message: `Submit ${toSubmit.length} day${toSubmit.length === 1 ? "" : "s"}${site ? ` for ${site.label}` : ""} · ${fortnightLabel(periodStart)} — ${decimalHours(totalMinutes)} h total. Your admin will review it.`,
       confirmLabel: "Yes, submit",
       cancelLabel: "Not yet",
     });
@@ -320,15 +390,19 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
       const e = parseTime(r.end)!;
       const startAt = atTime(r.dayKey, s);
       const endAt = e > s ? atTime(r.dayKey, e) : atTime(addDaysKey(r.dayKey, 1), e);
+      // Day location wins; fall back to the site centre for a fixed site.
+      const label = r.loc.trim() || site?.label || "";
+      const lat = r.lat ?? (r.loc.trim() ? undefined : site?.lat);
+      const lng = r.lng ?? (r.loc.trim() ? undefined : site?.lng);
       try {
         const res = await fetch("/api/timesheets", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            siteLabel: site.label,
-            siteId: site.siteId,
-            placeAddress: site.label,
-            location: site.lat != null && site.lng != null ? { lat: site.lat, lng: site.lng } : undefined,
+            siteLabel: label,
+            siteId: site?.siteId,
+            placeAddress: label,
+            location: lat != null && lng != null ? { lat, lng } : undefined,
             startAt, endAt,
             breakMinutes: Number(r.brk) || 0,
             breakPaid: false,
@@ -352,12 +426,17 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
       return;
     }
     await fetch(`/api/worker/timesheet-draft?period=${periodStart}`, { method: "DELETE" }).catch(() => {});
-    toast.success("Timesheet submitted", `${toSubmit.length} day${toSubmit.length === 1 ? "" : "s"} at ${site.label}.`);
+    toast.success("Timesheet submitted", `${toSubmit.length} day${toSubmit.length === 1 ? "" : "s"}${site ? ` at ${site.label}` : ""}.`);
     onDone();
   }
 
-  // ---- Step 1: choose a site ----
-  if (!site) {
+  // Still loading the worker's assigned sites.
+  if (!ctxLoaded) {
+    return <div className="py-12 text-center text-[var(--color-muted)]"><Spinner /></div>;
+  }
+
+  // ---- Step 1: choose a project/site — only when assigned to more than one ----
+  if (assignedSites.length > 1 && !site) {
     return (
       <div className="mb-4">
         <div className="card p-3 mb-3">
@@ -369,12 +448,12 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
 
         <div className="card p-4">
           <h2 className="font-semibold">Which site / project?</h2>
-          <p className="text-xs text-[var(--color-muted)] mt-0.5 mb-3">Choose where you worked, then enter that site’s hours.</p>
+          <p className="text-xs text-[var(--color-muted)] mt-0.5 mb-3">Choose the project you worked on, then enter each day’s hours and location.</p>
           <div className="space-y-2">
-            {activeSites.map((s) => (
+            {assignedSites.map((s) => (
               <button
                 key={s.id}
-                onClick={() => chooseSite({ siteId: s.id, label: s.name, lat: s.location?.lat, lng: s.location?.lng })}
+                onClick={() => chooseSite({ siteId: s.id, label: s.name, lat: s.location?.lat, lng: s.location?.lng, geofenceType: s.geofenceType })}
                 className="w-full flex items-center gap-3 rounded-xl border border-[var(--color-line)] px-3 py-3 text-left hover:bg-[var(--color-canvas)]"
               >
                 <span className="w-9 h-9 rounded-full bg-ocean-50 text-ocean-700 grid place-items-center shrink-0"><IconMapPin size={18} /></span>
@@ -384,9 +463,6 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
                 </span>
               </button>
             ))}
-            {activeSites.length === 0 && (
-              <p className="text-sm text-[var(--color-muted)]">No saved sites yet — use “Other location” below.</p>
-            )}
           </div>
 
           <div className="mt-3 border-t border-[var(--color-line)] pt-3">
@@ -400,7 +476,7 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
                   placeholder="Search a place or address…"
                   onChange={(p) => {
                     if (p.address?.trim()) {
-                      chooseSite({ label: p.address, lat: "lat" in p ? p.lat : undefined, lng: "lat" in p ? p.lng : undefined });
+                      chooseSite({ label: p.address, lat: "lat" in p ? p.lat : undefined, lng: "lat" in p ? p.lng : undefined, fixed: true });
                     }
                   }}
                 />
@@ -413,16 +489,18 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
     );
   }
 
-  // ---- Step 2: fill hours for the chosen site ----
+  // ---- Step 2: fill hours (+ per-day location) for the chosen site ----
   return (
     <div className="mb-4">
       <div className="card p-3 mb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">Site / project</div>
-            <div className="font-semibold truncate">{site.label}</div>
+            <div className="font-semibold truncate">{site ? site.label : "Any location"}</div>
           </div>
-          <button className="text-xs font-medium text-ocean-600 shrink-0" onClick={() => setSite(null)}>Change</button>
+          {assignedSites.length > 1 && (
+            <button className="text-xs font-medium text-ocean-600 shrink-0" onClick={() => setSite(null)}>Change</button>
+          )}
         </div>
         <div className="mt-2">
           <label className="block text-xs font-medium text-[var(--color-ink-soft)] mb-1">Working period</label>
@@ -430,12 +508,23 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
             {periods.map((p) => (<option key={p.startKey} value={p.startKey}>{p.label}</option>))}
           </select>
         </div>
-        <p className="mt-2 text-xs text-[var(--color-muted)]">Fill the days you worked — entries save automatically.</p>
+        <p className="mt-2 text-xs text-[var(--color-muted)]">
+          {requireDayLoc
+            ? "Add each day’s work location and hours — entries save automatically."
+            : "Fill the days you worked — entries save automatically."}
+        </p>
       </div>
 
       <div className="space-y-2.5">
         {rows.map((r, i) => (
-          <DayRow key={r.dayKey} row={r} minutes={perDay[i]} onChange={(patch) => update(i, patch)} />
+          <DayRow
+            key={r.dayKey}
+            row={r}
+            minutes={perDay[i]}
+            showLoc={requireDayLoc}
+            locHint={site && site.geofenceType === "radius" ? site.label : undefined}
+            onChange={(patch) => update(i, patch)}
+          />
         ))}
       </div>
 
@@ -465,10 +554,14 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
 function DayRow({
   row,
   minutes,
+  showLoc,
+  locHint,
   onChange,
 }: {
   row: Row;
   minutes: number;
+  showLoc: boolean;
+  locHint?: string;
   onChange: (patch: Partial<Row>) => void;
 }) {
   const worked = minutes > 0;
@@ -480,6 +573,25 @@ function DayRow({
           {worked ? `${decimalHours(minutes)} h` : "—"}
         </span>
       </div>
+      {showLoc && (
+        <label className="block min-w-0 mb-1.5">
+          <span className="block text-[11px] font-medium text-[var(--color-muted)] mb-1 inline-flex items-center gap-1">
+            <IconMapPin size={12} /> Work location
+          </span>
+          <PlaceSearch
+            className={cellInput}
+            defaultValue={row.loc}
+            placeholder={locHint ? `Default: ${locHint}` : "Search a place or address…"}
+            onChange={(p) =>
+              onChange({
+                loc: p.address || "",
+                lat: "lat" in p ? p.lat : undefined,
+                lng: "lat" in p ? p.lng : undefined,
+              })
+            }
+          />
+        </label>
+      )}
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_62px] gap-1.5">
         <label className="block min-w-0">
           <span className="block text-[11px] font-medium text-[var(--color-muted)] mb-1">Start</span>

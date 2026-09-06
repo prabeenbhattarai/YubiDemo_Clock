@@ -39,6 +39,8 @@ export interface Site {
   scheduledEnd?: string;
   /** Unpaid break minutes applied when rounding (e.g. 30). */
   scheduledBreakMinutes?: number;
+  /** Grace window (minutes) for snapping actual times to the schedule. */
+  roundGraceMinutes?: number;
 
   active: boolean;
   createdAt?: number;
@@ -151,6 +153,8 @@ export interface Timesheet {
   workerName: string;
 
   siteLabel: string; // free-text / place name searched
+  /** Saved site id when the worker picked one (enables per-site auto-round). */
+  siteId?: string;
   location?: LatLng;
   placeAddress?: string;
 

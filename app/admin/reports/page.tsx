@@ -553,6 +553,7 @@ function AddTimesheetModal({ onClose }: { onClose: () => void }) {
   const [loc, setLoc] = useState("");
   const [lat, setLat] = useState<number | null>(null);
   const [lng, setLng] = useState<number | null>(null);
+  const [siteId, setSiteId] = useState<string | undefined>(undefined);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [start, setStart] = useState("07:00");
   const [end, setEnd] = useState("15:30");
@@ -580,6 +581,7 @@ function AddTimesheetModal({ onClose }: { onClose: () => void }) {
       body: JSON.stringify({
         workerName: name,
         siteLabel: loc,
+        siteId,
         placeAddress: loc,
         location: lat != null && lng != null ? { lat, lng } : null,
         startAt,
@@ -626,7 +628,7 @@ function AddTimesheetModal({ onClose }: { onClose: () => void }) {
               value=""
               onChange={(e) => {
                 const site = sites.find((x) => x.id === e.target.value);
-                if (site) { setLoc(site.name); setLat(site.location?.lat ?? null); setLng(site.location?.lng ?? null); }
+                if (site) { setLoc(site.name); setLat(site.location?.lat ?? null); setLng(site.location?.lng ?? null); setSiteId(site.id); }
               }}
             >
               <option value="">Pick a saved site…</option>
@@ -640,6 +642,7 @@ function AddTimesheetModal({ onClose }: { onClose: () => void }) {
             placeholder={sites.length ? "…or type an address" : "Search a place or address…"}
             onChange={(p) => {
               setLoc(p.address);
+              setSiteId(undefined);
               if ("lat" in p) { setLat(p.lat); setLng(p.lng); } else { setLat(null); setLng(null); }
             }}
           />

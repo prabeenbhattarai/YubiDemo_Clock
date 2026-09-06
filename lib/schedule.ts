@@ -53,13 +53,16 @@ export function applySchedule(
   const schedEnd = auWallToMs(actualStart, site.scheduledEnd);
   if (!(schedEnd > schedStart)) return grossFallback; // bad/overnight config → skip
 
-  const payStart = Math.max(actualStart, schedStart); // early start capped up
-  const payEnd = Math.min(actualEnd, schedEnd); // late finish capped down
+  // Grace window: actual times within this of the schedule snap to it (both a
+  // few minutes early and a few minutes late). Beyond it, the actual time is
+  // kept (early is still capped up to the schedule; late finish capped down).
+  const grace = Math.max(0, site.roundGraceMinutes ?? 15) * 60 * 1000;
+  const payStart = actualStart <= schedStart + grace ? schedStart : actualStart;
+  const payEnd = actualEnd >= schedEnd - grace ? schedEnd : actualEnd;
   if (!(payEnd > payStart)) return grossFallback;
 
-  const tol = 60 * 1000; // 1-minute grace
-  const lateStart = actualStart > schedStart + tol;
-  const earlyEnd = actualEnd < schedEnd - tol;
+  const lateStart = actualStart > schedStart + grace;
+  const earlyEnd = actualEnd < schedEnd - grace;
   const underworked = lateStart || earlyEnd;
 
   return {

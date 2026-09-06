@@ -21,6 +21,7 @@ function sanitizeRows(raw: unknown): DraftRow[] {
       loc: typeof r.loc === "string" ? r.loc.slice(0, 300) : "",
       lat: typeof r.lat === "number" && Number.isFinite(r.lat) ? r.lat : null,
       lng: typeof r.lng === "number" && Number.isFinite(r.lng) ? r.lng : null,
+      siteId: typeof r.siteId === "string" ? r.siteId.slice(0, 60) : undefined,
       start: typeof r.start === "string" && HHMM.test(r.start) ? r.start : "",
       end: typeof r.end === "string" && HHMM.test(r.end) ? r.end : "",
       brk: brk.slice(0, 4),

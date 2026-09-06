@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
     | {
         workerName?: string;
         siteLabel?: string;
+        siteId?: string;
         placeAddress?: string;
         location?: { lat: number; lng: number } | null;
         startAt?: number;
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest) {
   const id = await createAdminTimesheet({
     workerName: b.workerName,
     siteLabel: b.siteLabel,
+    siteId: b.siteId,
     placeAddress: b.placeAddress,
     location: b.location ?? null,
     startAt: Number(b.startAt),

@@ -2,10 +2,13 @@ import "server-only";
 import { adminDb } from "./firebase/admin";
 import { COL, now } from "./repo";
 import { computeWorkedMinutes } from "./time";
+import { getSite } from "./shift-repo";
+import { applySchedule } from "./schedule";
 import type { BreakMinutes, HistoryEntry, Timesheet, Worker } from "./types";
 
 export interface TimesheetInput {
   siteLabel: string;
+  siteId?: string;
   placeAddress?: string;
   location?: { lat: number; lng: number };
   startAt: number;
@@ -16,13 +19,38 @@ export interface TimesheetInput {
   note?: string;
 }
 
+/**
+ * If a picked saved site has auto-round on, snap the entered start/end to its
+ * schedule (within the grace window). Returns the possibly-adjusted times and a
+ * note describing the change.
+ */
+async function roundToSiteSchedule(
+  siteId: string | undefined,
+  startAt: number,
+  endAt: number
+): Promise<{ startAt: number; endAt: number; note: string | null }> {
+  if (!siteId) return { startAt, endAt, note: null };
+  const site = await getSite(siteId);
+  if (!site?.autoRound) return { startAt, endAt, note: null };
+  const sched = applySchedule(site, startAt, endAt);
+  if (!sched.applied || sched.payStart == null || sched.payEnd == null)
+    return { startAt, endAt, note: null };
+  const changed = sched.payStart !== startAt || sched.payEnd !== endAt;
+  return {
+    startAt: sched.payStart,
+    endAt: sched.payEnd,
+    note: changed ? `Auto-rounded to ${site.name} schedule (${site.scheduledStart}–${site.scheduledEnd})` : null,
+  };
+}
+
 export async function createTimesheet(
   worker: Worker,
   input: TimesheetInput
 ): Promise<string> {
+  const rounded = await roundToSiteSchedule(input.siteId, input.startAt, input.endAt);
   const totalMinutes = computeWorkedMinutes(
-    input.startAt,
-    input.endAt,
+    rounded.startAt,
+    rounded.endAt,
     input.breakMinutes,
     input.breakPaid
   );
@@ -30,16 +58,18 @@ export async function createTimesheet(
   const history: HistoryEntry[] = [
     { at: t, by: worker.email, action: "Submitted for approval", to: "pending" },
   ];
+  if (rounded.note) history.push({ at: t, by: "system", action: rounded.note });
 
   const ref = await adminDb.collection(COL.timesheets).add({
     workerId: worker.id,
     workerUid: worker.uid,
     workerName: worker.name,
     siteLabel: input.siteLabel.trim(),
+    siteId: input.siteId ?? null,
     placeAddress: input.placeAddress ?? null,
     location: input.location ?? null,
-    startAt: input.startAt,
-    endAt: input.endAt,
+    startAt: rounded.startAt,
+    endAt: rounded.endAt,
     breakMinutes: input.breakMinutes,
     breakPaid: input.breakPaid,
     periodStart: input.periodStart ?? null,
@@ -72,6 +102,7 @@ export interface DraftRow {
   loc: string;
   lat: number | null;
   lng: number | null;
+  siteId?: string;
   start: string; // "HH:MM"
   end: string;   // "HH:MM"
   brk: string;   // minutes as string
@@ -112,6 +143,7 @@ export async function deleteTimesheetDraft(workerUid: string, periodStart: strin
 export async function createAdminTimesheet(input: {
   workerName?: string;
   siteLabel: string;
+  siteId?: string;
   placeAddress?: string;
   location?: { lat: number; lng: number } | null;
   startAt: number;
@@ -121,9 +153,10 @@ export async function createAdminTimesheet(input: {
   periodStart?: string;
   by: string;
 }): Promise<string> {
+  const rounded = await roundToSiteSchedule(input.siteId, input.startAt, input.endAt);
   const totalMinutes = computeWorkedMinutes(
-    input.startAt,
-    input.endAt,
+    rounded.startAt,
+    rounded.endAt,
     input.breakMinutes as BreakMinutes,
     !!input.breakPaid
   );
@@ -132,16 +165,18 @@ export async function createAdminTimesheet(input: {
   const history: HistoryEntry[] = [
     { at: t, by: input.by, action: "Added by admin (casual)", to: "pending" },
   ];
+  if (rounded.note) history.push({ at: t, by: "system", action: rounded.note });
   const ref = await adminDb.collection(COL.timesheets).add({
     workerId: null,
     workerUid: null,
     workerName: name,
     casual: true,
     siteLabel: input.siteLabel.trim(),
+    siteId: input.siteId ?? null,
     placeAddress: input.placeAddress ?? null,
     location: input.location ?? null,
-    startAt: input.startAt,
-    endAt: input.endAt,
+    startAt: rounded.startAt,
+    endAt: rounded.endAt,
     breakMinutes: input.breakMinutes,
     breakPaid: !!input.breakPaid,
     periodStart: input.periodStart ?? null,

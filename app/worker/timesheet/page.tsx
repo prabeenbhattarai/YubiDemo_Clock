@@ -162,6 +162,7 @@ interface Row {
   loc: string;
   lat?: number;
   lng?: number;
+  siteId?: string;
   start: string; // "HH:MM"
   end: string;   // "HH:MM"
   brk: string;   // minutes as string
@@ -215,7 +216,7 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
         const data = res.ok ? await res.json().catch(() => ({})) : {};
         if (!active) return;
         const draftRows = data?.draft?.rows as
-          | { dayKey: string; loc?: string; lat?: number | null; lng?: number | null; start?: string; end?: string; brk?: string }[]
+          | { dayKey: string; loc?: string; lat?: number | null; lng?: number | null; siteId?: string; start?: string; end?: string; brk?: string }[]
           | undefined;
         const base = buildRows(periodStart);
         if (Array.isArray(draftRows) && draftRows.length) {
@@ -229,6 +230,7 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
                     loc: d.loc || "",
                     lat: typeof d.lat === "number" ? d.lat : undefined,
                     lng: typeof d.lng === "number" ? d.lng : undefined,
+                    siteId: d.siteId || undefined,
                     start: d.start || "",
                     end: d.end || "",
                     brk: d.brk || "",
@@ -321,6 +323,7 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             siteLabel: r.loc.trim(),
+            siteId: r.siteId,
             placeAddress: r.loc.trim(),
             location: r.lat != null && r.lng != null ? { lat: r.lat, lng: r.lng } : undefined,
             startAt,
@@ -438,7 +441,7 @@ function DayRow({
           value=""
           onChange={(e) => {
             const site = sites.find((x) => x.id === e.target.value);
-            if (site) onChange({ loc: site.name, lat: site.location?.lat, lng: site.location?.lng });
+            if (site) onChange({ loc: site.name, lat: site.location?.lat, lng: site.location?.lng, siteId: site.id });
           }}
         >
           <option value="">Pick a saved site…</option>
@@ -448,7 +451,7 @@ function DayRow({
         </select>
       )}
       <PlaceSearch className={`${cellInput} mb-2`} placeholder={sites.length ? "…or type an address" : "Location / site…"} defaultValue={row.loc} onChange={(p) =>
-        onChange({ loc: p.address, lat: "lat" in p ? p.lat : undefined, lng: "lat" in p ? p.lng : undefined })
+        onChange({ loc: p.address, lat: "lat" in p ? p.lat : undefined, lng: "lat" in p ? p.lng : undefined, siteId: undefined })
       } />
 
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_62px] gap-1.5">

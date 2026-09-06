@@ -143,6 +143,7 @@ function SiteForm({ site, onClose }: { site: Site | null; onClose: () => void })
   const [schedStart, setSchedStart] = useState(site?.scheduledStart ?? "06:00");
   const [schedEnd, setSchedEnd] = useState(site?.scheduledEnd ?? "14:00");
   const [schedBreak, setSchedBreak] = useState(site?.scheduledBreakMinutes ?? 30);
+  const [graceMin, setGraceMin] = useState(site?.roundGraceMinutes ?? 15);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const toast = useToast();
@@ -172,6 +173,7 @@ function SiteForm({ site, onClose }: { site: Site | null; onClose: () => void })
       scheduledStart: schedStart,
       scheduledEnd: schedEnd,
       scheduledBreakMinutes: Number(schedBreak),
+      roundGraceMinutes: Number(graceMin),
       active,
     };
     const res = await fetch(
@@ -309,13 +311,13 @@ function SiteForm({ site, onClose }: { site: Site | null; onClose: () => void })
             <span>
               <span className="text-sm font-medium block">Auto-round to schedule</span>
               <span className="text-xs text-[var(--color-muted)]">
-                Cap early starts &amp; late finishes to the shift window; flag late starts / early leaves.
+                Snap clock-in/out (and picked-site timesheets) to the shift window when within the grace time; a big deviation is kept and flagged.
               </span>
             </span>
             <Toggle checked={autoRound} onChange={setAutoRound} />
           </label>
           {autoRound && (
-            <div className="grid grid-cols-3 gap-2 mt-1">
+            <div className="grid grid-cols-2 gap-2 mt-1">
               <Field label="Start">
                 <input type="time" className="input" value={schedStart} onChange={(e) => setSchedStart(e.target.value)} />
               </Field>
@@ -324,6 +326,9 @@ function SiteForm({ site, onClose }: { site: Site | null; onClose: () => void })
               </Field>
               <Field label="Break (min)">
                 <input type="number" min={0} step={5} className="input" value={schedBreak} onChange={(e) => setSchedBreak(Number(e.target.value))} />
+              </Field>
+              <Field label="Grace window (min)" hint="e.g. 15 → 6:05 or 5:56 becomes 6:00">
+                <input type="number" min={0} step={5} className="input" value={graceMin} onChange={(e) => setGraceMin(Number(e.target.value))} />
               </Field>
             </div>
           )}

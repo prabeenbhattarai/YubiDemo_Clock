@@ -19,6 +19,7 @@ export interface SiteInput {
   scheduledStart?: string;
   scheduledEnd?: string;
   scheduledBreakMinutes?: number;
+  roundGraceMinutes?: number;
   active?: boolean;
 }
 
@@ -33,6 +34,7 @@ function cleanSite(input: SiteInput) {
     scheduledStart: input.autoRound ? input.scheduledStart ?? "06:00" : null,
     scheduledEnd: input.autoRound ? input.scheduledEnd ?? "14:00" : null,
     scheduledBreakMinutes: input.autoRound ? input.scheduledBreakMinutes ?? 30 : null,
+    roundGraceMinutes: input.autoRound ? Math.max(0, input.roundGraceMinutes ?? 15) : null,
     active: input.active !== false,
     updatedAt: now(),
   };

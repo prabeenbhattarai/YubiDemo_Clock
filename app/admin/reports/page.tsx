@@ -22,6 +22,7 @@ import Modal from "@/components/modal";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/confirm";
 import { PasswordProvider, useRequirePassword } from "@/components/password-gate";
+import { SITE_ALL, belongsToSite } from "@/lib/site-filter";
 import {
   IconClipboard,
   IconPencil,
@@ -35,26 +36,7 @@ import { EditShift, EditTimesheet } from "@/app/admin/approvals/page";
 import PlaceSearch from "@/components/place-search";
 
 const ALL = "all";
-const SITE_ALL = "__all__"; // reports across every site
 type Tab = "timesheets" | "shifts";
-
-/**
- * Does a record belong to the chosen site? Records carry a siteId once a site
- * is picked; legacy/casual records without one are matched by label, and in a
- * single-site system they all roll up to that site.
- */
-function belongsToSite(
-  rec: { siteId?: string | null; siteLabel?: string; siteName?: string },
-  siteId: string,
-  sites: Site[]
-): boolean {
-  if (siteId === SITE_ALL) return true;
-  if (rec.siteId) return rec.siteId === siteId;
-  const site = sites.find((s) => s.id === siteId);
-  const label = (rec.siteLabel || rec.siteName || "").trim().toLowerCase();
-  if (site && label && label === site.name.trim().toLowerCase()) return true;
-  return sites.length <= 1; // one-site system: unassigned rolls up to the site
-}
 
 export default function ReportsPage() {
   const [tab, setTab] = useState<Tab>("timesheets");
@@ -352,6 +334,17 @@ function ExportToolbar({
   );
 }
 
+function KpiCard({ label, value, accent, tone }: { label: string; value: string; accent?: boolean; tone?: "warn" }) {
+  return (
+    <div className="card p-4">
+      <div className="text-xs text-[var(--color-muted)] font-medium">{label}</div>
+      <div className={`text-2xl font-bold tabular-nums leading-tight mt-0.5 ${accent ? "text-brand-700" : tone === "warn" ? "text-warn" : ""}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
 function rangeLabel(from: string, to: string) {
   if (from && to) return `${from} to ${to}`;
   if (from) return `From ${from}`;
@@ -405,6 +398,8 @@ function TimesheetsReport({ siteId, sites }: { siteId: string; sites: Site[] }) 
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [visibleTs, workers, period]);
 
+  const pendingTotal = useMemo(() => groups.reduce((s, g) => s + g.pending, 0), [groups]);
+
   async function act(id: string, action: "approve" | "on_hold") {
     const r = await fetch(`/api/admin/approvals/timesheet/${id}`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }),
@@ -446,6 +441,13 @@ function TimesheetsReport({ siteId, sites }: { siteId: string; sites: Site[] }) 
             Download PDF
           </button>
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5 no-print">
+        <KpiCard label="Workers" value={String(groups.length)} />
+        <KpiCard label="Total hours" value={minutesToHhMm(exportTotal)} accent />
+        <KpiCard label="Pending" value={String(pendingTotal)} tone={pendingTotal > 0 ? "warn" : undefined} />
+        <KpiCard label="Sites in view" value={String(exportGroups.length)} />
       </div>
 
       {adding && <AddTimesheetModal onClose={() => setAdding(false)} />}

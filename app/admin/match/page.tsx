@@ -27,10 +27,20 @@ import {
   IconPencil,
   IconTrash,
   IconX,
+  IconMapPin,
 } from "@/components/icons";
 import { EditShift, EditTimesheet } from "@/app/admin/approvals/page";
+import { SITE_ALL, belongsToSite } from "@/lib/site-filter";
 
 const ALL = "all";
+
+/** A reconciliation row belongs to a site if its shift or timesheet does. */
+function rowMatchesSite(r: ReconRow, siteId: string, sites: Site[]): boolean {
+  if (siteId === SITE_ALL) return true;
+  if (r.shift && belongsToSite(r.shift, siteId, sites)) return true;
+  if (r.timesheet && belongsToSite(r.timesheet, siteId, sites)) return true;
+  return false;
+}
 
 const STATE_LABEL: Record<ReconRow["state"], { text: string; cls: string }> = {
   matched: { text: "Matched", cls: "pill-approved" },
@@ -55,16 +65,27 @@ export default function MatchPage() {
 
   const periods = useMemo(() => listFortnights(), []);
   const [period, setPeriod] = useState(() => fortnightStartKey(new Date().toISOString().slice(0, 10)));
+  const [siteId, setSiteId] = useState<string | null>(null); // null → choose first
   const [detail, setDetail] = useState<ReconRow | null>(null);
   const [editShift, setEditShift] = useState<Shift | null>(null);
   const [editTs, setEditTs] = useState<Timesheet | null>(null);
   const [linkFor, setLinkFor] = useState<ReconRow | null>(null);
 
+  const activeSites = useMemo(() => sites.filter((s) => s.active !== false), [sites]);
   const allRows = useMemo(() => buildReconciliation(shifts, timesheets, sites), [shifts, timesheets, sites]);
   const rows = useMemo(
-    () => (period === ALL ? allRows : allRows.filter((r) => isWithinFortnight(r.dateKey, period))),
-    [allRows, period]
+    () =>
+      allRows
+        .filter((r) => period === ALL || isWithinFortnight(r.dateKey, period))
+        .filter((r) => siteId == null || rowMatchesSite(r, siteId, sites)),
+    [allRows, period, siteId, sites]
   );
+
+  const stats = useMemo(() => {
+    const c = { matched: 0, "location-mismatch": 0, "shift-only": 0, "timesheet-only": 0 } as Record<ReconRow["state"], number>;
+    for (const r of rows) c[r.state]++;
+    return c;
+  }, [rows]);
 
   async function link(shiftId: string, timesheetId: string | null) {
     const res = await fetch("/api/admin/reconcile", {
@@ -110,12 +131,69 @@ export default function MatchPage() {
   if ((l1 || l2) && allRows.length === 0)
     return <div className="py-16 text-center text-[var(--color-muted)]"><Spinner /></div>;
 
+  // ---- Step 1: choose a site/project before showing any details ----
+  if (siteId === null) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold">Match timesheets &amp; clock-ins</h1>
+        <p className="text-[var(--color-muted)] text-sm mb-5">Choose a site/project to compare its timesheets against clock-in shifts.</p>
+        <div className="card p-4 max-w-lg">
+          <h2 className="font-semibold mb-1">Which site / project?</h2>
+          <p className="text-xs text-[var(--color-muted)] mb-3">Pick one site, or compare across all sites.</p>
+          <div className="space-y-2">
+            <button
+              onClick={() => setSiteId(SITE_ALL)}
+              className="w-full flex items-center gap-3 rounded-xl border border-[var(--color-line)] px-3 py-3 text-left hover:bg-[var(--color-canvas)]"
+            >
+              <span className="w-9 h-9 rounded-full bg-brand-100 text-brand-700 grid place-items-center shrink-0"><IconLink size={18} /></span>
+              <span className="min-w-0">
+                <span className="block font-medium">All sites</span>
+                <span className="block text-xs text-[var(--color-muted)]">Everything across every site/project</span>
+              </span>
+            </button>
+            {activeSites.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => setSiteId(s.id)}
+                className="w-full flex items-center gap-3 rounded-xl border border-[var(--color-line)] px-3 py-3 text-left hover:bg-[var(--color-canvas)]"
+              >
+                <span className="w-9 h-9 rounded-full bg-ocean-50 text-ocean-700 grid place-items-center shrink-0"><IconMapPin size={18} /></span>
+                <span className="min-w-0">
+                  <span className="block font-medium truncate">{s.name}</span>
+                  {s.address && <span className="block text-xs text-[var(--color-muted)] truncate">{s.address}</span>}
+                </span>
+              </button>
+            ))}
+            {activeSites.length === 0 && (
+              <p className="text-sm text-[var(--color-muted)]">No saved sites yet — use “All sites”.</p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const siteName = siteId === SITE_ALL ? "All sites" : sites.find((s) => s.id === siteId)?.name ?? "Site";
+
   return (
     <div>
-      <h1 className="text-2xl font-bold">Match timesheets &amp; clock-ins</h1>
-      <p className="text-[var(--color-muted)] text-sm mb-5">
-        Submitted timesheet on the left, its matching clock-in shift on the right — compare time in / out / break, then confirm, fix, or match.
-      </p>
+      <div className="flex items-start justify-between gap-3 no-print">
+        <div>
+          <h1 className="text-2xl font-bold">Match timesheets &amp; clock-ins</h1>
+          <p className="text-[var(--color-muted)] text-sm mb-4">
+            <span className="font-medium text-[var(--color-ink)]">{siteName}</span> · timesheet on the left, its clock-in shift on the right — confirm, fix, or match.
+          </p>
+        </div>
+        <button className="btn-outline shrink-0" onClick={() => setSiteId(null)}>Change site</button>
+      </div>
+
+      {/* Summary */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5 no-print">
+        <StatCard label="Matched" value={stats.matched} tone="approved" icon={<IconCheck size={16} />} />
+        <StatCard label="Date only" value={stats["location-mismatch"]} tone="pending" icon={<IconWarning size={16} />} />
+        <StatCard label="No timesheet" value={stats["shift-only"]} tone="hold" />
+        <StatCard label="No clock-in" value={stats["timesheet-only"]} tone="edited" />
+      </div>
 
       <div className="flex flex-wrap items-center gap-3 mb-3 no-print">
         <select className="input max-w-xs" value={period} onChange={(e) => setPeriod(e.target.value)}>
@@ -132,7 +210,7 @@ export default function MatchPage() {
       <div className="print-area">
         <div className="hidden print:block mb-3">
           <h2 className="text-xl font-bold">Yubi Demolition — Timesheet vs Clock-in</h2>
-          <p className="text-sm">{period === ALL ? "All periods" : `Fortnight: ${fortnightLabel(period)}`}</p>
+          <p className="text-sm">{siteName} · {period === ALL ? "All periods" : `Fortnight: ${fortnightLabel(period)}`}</p>
         </div>
 
         {rows.length === 0 ? (
@@ -309,6 +387,27 @@ export default function MatchPage() {
           })()}
         </Modal>
       )}
+    </div>
+  );
+}
+
+const STAT_TONE: Record<string, string> = {
+  approved: "text-teal-600 bg-[#e6faf3] border-teal-100",
+  pending: "text-warn bg-warn-soft border-amber-100",
+  hold: "text-brand-700 bg-brand-50 border-brand-100",
+  edited: "text-ocean-700 bg-ocean-50 border-ocean-100",
+};
+
+function StatCard({ label, value, tone, icon }: { label: string; value: number; tone: string; icon?: React.ReactNode }) {
+  return (
+    <div className="card p-4 flex items-center justify-between">
+      <div>
+        <div className="text-xs text-[var(--color-muted)] font-medium">{label}</div>
+        <div className="text-2xl font-bold tabular-nums leading-tight mt-0.5">{value}</div>
+      </div>
+      <span className={`w-9 h-9 rounded-full grid place-items-center border ${STAT_TONE[tone] || STAT_TONE.hold}`}>
+        {icon ?? <IconLink size={16} />}
+      </span>
     </div>
   );
 }

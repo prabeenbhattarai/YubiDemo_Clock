@@ -155,7 +155,7 @@ export default function AdminShell({
           </div>
         </header>
 
-        <main className="max-w-5xl mx-auto w-full p-4 md:p-8 pb-16">{children}</main>
+        <main className="w-full p-4 md:px-8 md:py-7 pb-16">{children}</main>
       </div>
     </div>
     </NotificationsProvider>

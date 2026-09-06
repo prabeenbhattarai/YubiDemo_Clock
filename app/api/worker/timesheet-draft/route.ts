@@ -18,10 +18,6 @@ function sanitizeRows(raw: unknown): DraftRow[] {
     const brk = typeof r.brk === "string" ? r.brk : typeof r.brk === "number" ? String(r.brk) : "";
     return {
       dayKey: typeof r.dayKey === "string" ? r.dayKey.slice(0, 10) : "",
-      loc: typeof r.loc === "string" ? r.loc.slice(0, 300) : "",
-      lat: typeof r.lat === "number" && Number.isFinite(r.lat) ? r.lat : null,
-      lng: typeof r.lng === "number" && Number.isFinite(r.lng) ? r.lng : null,
-      siteId: typeof r.siteId === "string" ? r.siteId.slice(0, 60) : undefined,
       start: typeof r.start === "string" && HHMM.test(r.start) ? r.start : "",
       end: typeof r.end === "string" && HHMM.test(r.end) ? r.end : "",
       brk: brk.slice(0, 4),
@@ -41,10 +37,18 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireUser("worker");
   if ("error" in auth) return auth.error;
-  const body = (await req.json().catch(() => null)) as { periodStart?: string; rows?: unknown } | null;
+  const body = (await req.json().catch(() => null)) as
+    | { periodStart?: string; siteId?: string; siteLabel?: string; lat?: number; lng?: number; rows?: unknown }
+    | null;
   const period = String(body?.periodStart || "");
   if (!ISO.test(period)) return NextResponse.json({ error: "Invalid period" }, { status: 400 });
-  await saveTimesheetDraft(auth.user.uid, period, sanitizeRows(body?.rows));
+  await saveTimesheetDraft(auth.user.uid, period, {
+    siteId: typeof body?.siteId === "string" ? body.siteId.slice(0, 60) : null,
+    siteLabel: typeof body?.siteLabel === "string" ? body.siteLabel.slice(0, 300) : null,
+    lat: typeof body?.lat === "number" ? body.lat : null,
+    lng: typeof body?.lng === "number" ? body.lng : null,
+    rows: sanitizeRows(body?.rows),
+  });
   return NextResponse.json({ ok: true });
 }
 

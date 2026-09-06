@@ -99,13 +99,19 @@ export async function listWorkerTimesheets(uid: string): Promise<Timesheet[]> {
 
 export interface DraftRow {
   dayKey: string;
-  loc: string;
-  lat: number | null;
-  lng: number | null;
-  siteId?: string;
   start: string; // "HH:MM"
   end: string;   // "HH:MM"
   brk: string;   // minutes as string
+}
+
+export interface TimesheetDraft {
+  periodStart: string;
+  siteId?: string | null;
+  siteLabel?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  rows: DraftRow[];
+  updatedAt?: number;
 }
 
 function draftId(workerUid: string, periodStart: string) {
@@ -115,18 +121,34 @@ function draftId(workerUid: string, periodStart: string) {
 export async function getTimesheetDraft(
   workerUid: string,
   periodStart: string
-): Promise<{ periodStart: string; rows: DraftRow[]; updatedAt?: number } | null> {
+): Promise<TimesheetDraft | null> {
   const doc = await adminDb.collection(COL.timesheetDrafts).doc(draftId(workerUid, periodStart)).get();
   if (!doc.exists) return null;
-  const d = doc.data() as { periodStart?: string; rows?: DraftRow[]; updatedAt?: number };
-  return { periodStart: d.periodStart || periodStart, rows: Array.isArray(d.rows) ? d.rows : [], updatedAt: d.updatedAt };
+  const d = doc.data() as Partial<TimesheetDraft>;
+  return {
+    periodStart: d.periodStart || periodStart,
+    siteId: d.siteId ?? null,
+    siteLabel: d.siteLabel ?? null,
+    lat: d.lat ?? null,
+    lng: d.lng ?? null,
+    rows: Array.isArray(d.rows) ? d.rows : [],
+    updatedAt: d.updatedAt,
+  };
 }
 
-export async function saveTimesheetDraft(workerUid: string, periodStart: string, rows: DraftRow[]) {
+export async function saveTimesheetDraft(
+  workerUid: string,
+  periodStart: string,
+  data: { siteId?: string | null; siteLabel?: string | null; lat?: number | null; lng?: number | null; rows: DraftRow[] }
+) {
   await adminDb.collection(COL.timesheetDrafts).doc(draftId(workerUid, periodStart)).set({
     workerUid,
     periodStart,
-    rows,
+    siteId: data.siteId ?? null,
+    siteLabel: data.siteLabel ?? null,
+    lat: data.lat ?? null,
+    lng: data.lng ?? null,
+    rows: data.rows,
     updatedAt: now(),
   });
 }

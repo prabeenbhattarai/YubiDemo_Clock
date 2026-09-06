@@ -56,6 +56,18 @@ function shiftBreak(s: Shift) {
   return s.breakMinutes ?? 0;
 }
 
+const DIFF_THRESHOLD = 15; // minutes; beyond this the row is flagged
+
+/** Timesheet total − clock-in total, in minutes; null when a side is missing. */
+function rowDiff(r: ReconRow): number | null {
+  if (!r.timesheet || !r.shift) return null;
+  return timesheetWorkedMinutes(r.timesheet) - shiftWorkedMinutes(r.shift);
+}
+function fmtDiff(m: number): string {
+  if (m === 0) return "0m";
+  return `${m > 0 ? "+" : "−"}${minutesToHhMm(Math.abs(m))}`;
+}
+
 export default function MatchPage() {
   const { data: shifts, loading: l1 } = useLiveCollection<Shift>("shifts", []);
   const { data: timesheets, loading: l2 } = useLiveCollection<Timesheet>("timesheets", []);
@@ -66,6 +78,8 @@ export default function MatchPage() {
   const periods = useMemo(() => listFortnights(), []);
   const [period, setPeriod] = useState(() => fortnightStartKey(new Date().toISOString().slice(0, 10)));
   const [siteId, setSiteId] = useState<string | null>(null); // null → choose first
+  const [worker, setWorker] = useState("all");
+  const [unmatchedOnly, setUnmatchedOnly] = useState(false);
   const [detail, setDetail] = useState<ReconRow | null>(null);
   const [editShift, setEditShift] = useState<Shift | null>(null);
   const [editTs, setEditTs] = useState<Timesheet | null>(null);
@@ -73,12 +87,25 @@ export default function MatchPage() {
 
   const activeSites = useMemo(() => sites.filter((s) => s.active !== false), [sites]);
   const allRows = useMemo(() => buildReconciliation(shifts, timesheets, sites), [shifts, timesheets, sites]);
-  const rows = useMemo(
+
+  // Scoped by site + period; worker/unmatched filters apply on top.
+  const scoped = useMemo(
     () =>
       allRows
         .filter((r) => period === ALL || isWithinFortnight(r.dateKey, period))
         .filter((r) => siteId == null || rowMatchesSite(r, siteId, sites)),
     [allRows, period, siteId, sites]
+  );
+  const workerNames = useMemo(
+    () => Array.from(new Set(scoped.map((r) => r.workerName))).sort((a, b) => a.localeCompare(b)),
+    [scoped]
+  );
+  const rows = useMemo(
+    () =>
+      scoped
+        .filter((r) => worker === "all" || r.workerName === worker)
+        .filter((r) => !unmatchedOnly || r.state !== "matched"),
+    [scoped, worker, unmatchedOnly]
   );
 
   const stats = useMemo(() => {
@@ -110,14 +137,16 @@ export default function MatchPage() {
     const hrs = (m: number) => (m / 60).toFixed(2);
     const head = ["Worker", "Date", "Status",
       "TS In", "TS Out", "TS Break (min)", "TS Hours",
-      "Shift In", "Shift Out", "Shift Break (min)", "Shift Hours"];
+      "Shift In", "Shift Out", "Shift Break (min)", "Shift Hours", "Diff (hrs)"];
     const lines = [head.map(esc).join(",")];
     for (const r of rows) {
       const t = r.timesheet, s = r.shift;
+      const d = rowDiff(r);
       lines.push([
         r.workerName, r.dateKey, STATE_LABEL[r.state].text,
         t ? formatAuTime(t.startAt) : "", t ? formatAuTime(t.endAt) : "", t ? tsBreak(t) : "", t ? hrs(timesheetWorkedMinutes(t)) : "",
         s ? formatAuTime(s.startedAt) : "", s?.endedAt ? formatAuTime(s.endedAt) : "", s ? shiftBreak(s) : "", s ? hrs(shiftWorkedMinutes(s)) : "",
+        d == null ? "" : (d / 60).toFixed(2),
       ].map(esc).join(","));
     }
     const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
@@ -200,6 +229,14 @@ export default function MatchPage() {
           <option value={ALL}>All periods</option>
           {periods.map((p) => (<option key={p.startKey} value={p.startKey}>{p.label}</option>))}
         </select>
+        <select className="input max-w-xs" value={worker} onChange={(e) => setWorker(e.target.value)}>
+          <option value="all">All workers</option>
+          {workerNames.map((w) => (<option key={w} value={w}>{w}</option>))}
+        </select>
+        <label className="inline-flex items-center gap-2 text-sm cursor-pointer select-none">
+          <input type="checkbox" className="accent-brand-600 w-4 h-4" checked={unmatchedOnly} onChange={(e) => setUnmatchedOnly(e.target.checked)} />
+          Unmatched only
+        </label>
         <span className="text-xs text-[var(--color-muted)]">{rows.length} row{rows.length === 1 ? "" : "s"}</span>
         <div className="flex gap-2 ml-auto">
           <button className="btn-outline" onClick={exportCsv} disabled={rows.length === 0}>Export Excel</button>
@@ -217,7 +254,7 @@ export default function MatchPage() {
           <EmptyState icon={<IconClipboard size={22} />} title="Nothing in this period" subtitle="Pick another working period." />
         ) : (
           <div className="card overflow-x-auto">
-            <table className="w-full text-sm min-w-[900px]">
+            <table className="w-full text-sm min-w-[1000px]">
               <thead>
                 <tr className="text-left text-[var(--color-muted)] border-b border-[var(--color-line)]">
                   <th className="p-3 font-medium">Worker</th>
@@ -230,6 +267,7 @@ export default function MatchPage() {
                   <th className="p-3 font-medium">Out</th>
                   <th className="p-3 font-medium">Break</th>
                   <th className="p-3 font-medium">Total</th>
+                  <th className="p-3 font-medium">Diff</th>
                   <th className="p-3 font-medium">Match</th>
                 </tr>
               </thead>
@@ -237,6 +275,8 @@ export default function MatchPage() {
                 {rows.map((r) => {
                   const t = r.timesheet, s = r.shift;
                   const badge = STATE_LABEL[r.state];
+                  const diff = rowDiff(r);
+                  const bigDiff = diff != null && Math.abs(diff) > DIFF_THRESHOLD;
                   return (
                     <tr
                       key={r.key}
@@ -255,6 +295,16 @@ export default function MatchPage() {
                       <td className="p-3 whitespace-nowrap">{s?.endedAt ? formatAuTime(s.endedAt) : "—"}</td>
                       <td className="p-3">{s ? `${shiftBreak(s)}m` : "—"}</td>
                       <td className="p-3 font-medium">{s ? minutesToHhMm(shiftWorkedMinutes(s)) : "—"}</td>
+                      {/* Discrepancy */}
+                      <td className="p-3 whitespace-nowrap">
+                        {diff == null ? (
+                          <span className="text-[var(--color-muted)]">—</span>
+                        ) : (
+                          <span className={`font-medium tabular-nums ${bigDiff ? "text-[var(--color-danger)]" : diff === 0 ? "text-[var(--color-muted)]" : "text-[var(--color-ink-soft)]"}`}>
+                            {fmtDiff(diff)}
+                          </span>
+                        )}
+                      </td>
                       <td className="p-3">
                         <span className={`chip ${badge.cls}`}>
                           {r.state === "matched" ? <IconCheck size={12} /> : r.state === "location-mismatch" ? <IconWarning size={12} /> : null}

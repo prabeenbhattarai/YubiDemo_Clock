@@ -31,6 +31,27 @@ function auWeekday(ms: number): number {
   return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(wd);
 }
 
+/** AU calendar day key (YYYY-MM-DD) for grouping by local date. */
+function auDayKey(ms: number): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: AU_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(ms));
+}
+function auDayShort(ms: number): string {
+  return new Intl.DateTimeFormat("en-AU", { timeZone: AU_TZ, day: "numeric", month: "short" }).format(
+    new Date(ms)
+  );
+}
+function shiftMins(s: Shift): number {
+  return s.durationMinutes ? shiftWorkedMinutes(s) : 0;
+}
+function tsMins(t: Timesheet): number {
+  return t.adminTotalMinutes ?? t.totalMinutes ?? 0;
+}
+
 export default function AdminDashboard() {
   const { data: shifts } = useLiveCollection<Shift>("shifts", []);
   const { data: timesheets } = useLiveCollection<Timesheet>("timesheets", []);
@@ -55,6 +76,49 @@ export default function AdminDashboard() {
     return buckets;
   }, [shifts, timesheets]);
 
+  // 14-day hours trend (clock-in + timesheet minutes per AU day).
+  const trend = useMemo(() => {
+    const days: { key: string; label: string; mins: number }[] = [];
+    const idx = new Map<string, number>();
+    const now = Date.now();
+    for (let i = 13; i >= 0; i--) {
+      const ms = now - i * 86400000;
+      const key = auDayKey(ms);
+      idx.set(key, days.length);
+      days.push({ key, label: auDayShort(ms), mins: 0 });
+    }
+    for (const s of shifts) { const i = idx.get(auDayKey(s.startedAt)); if (i != null) days[i].mins += shiftMins(s); }
+    for (const t of timesheets) { const i = idx.get(auDayKey(t.startAt)); if (i != null) days[i].mins += tsMins(t); }
+    return days;
+  }, [shifts, timesheets]);
+
+  // Hours by site (resolve siteId to a name; fall back to the record's label).
+  const bySite = useMemo(() => {
+    const m = new Map<string, number>();
+    const nameOf = (id?: string) => (id ? sites.find((s) => s.id === id)?.name : undefined);
+    const add = (name: string, mins: number) => { if (mins) m.set(name, (m.get(name) || 0) + mins); };
+    for (const s of shifts) add(nameOf(s.siteId) || s.siteName || "Unspecified", shiftMins(s));
+    for (const t of timesheets) add(nameOf(t.siteId) || t.siteLabel || "Unspecified", tsMins(t));
+    return [...m.entries()].map(([name, mins]) => ({ name, mins })).sort((a, b) => b.mins - a.mins).slice(0, 6);
+  }, [shifts, timesheets, sites]);
+
+  // Top workers by hours logged.
+  const byWorker = useMemo(() => {
+    const m = new Map<string, number>();
+    const add = (name: string, mins: number) => { if (mins) m.set(name, (m.get(name) || 0) + mins); };
+    for (const s of shifts) add(s.workerName || "—", shiftMins(s));
+    for (const t of timesheets) add(t.workerName || "—", tsMins(t));
+    return [...m.entries()].map(([name, mins]) => ({ name, mins })).sort((a, b) => b.mins - a.mins).slice(0, 6);
+  }, [shifts, timesheets]);
+
+  // Timesheet vs clock-in split.
+  const split = useMemo(() => {
+    let ts = 0, sh = 0;
+    for (const s of shifts) sh += shiftMins(s);
+    for (const t of timesheets) ts += tsMins(t);
+    return { ts, sh };
+  }, [shifts, timesheets]);
+
   const reviewables = [
     ...shifts.filter((s) => s.status === "completed").map((s) => s.approvalStatus),
     ...timesheets.map((t) => t.status),
@@ -72,6 +136,54 @@ export default function AdminDashboard() {
         <StatCard title="Off-site" value={offsite.length} sub="Left the boundary" href="/admin/live" icon={<IconMapPin size={16} />} tone="warn" />
         <StatCard title="Pending approvals" value={pending} sub="Awaiting review" href="/admin/approvals" icon={<IconApprovals size={16} />} tone="brand" />
         <StatCard title="Workers" value={workers.length} sub={`${sites.length} site${sites.length === 1 ? "" : "s"}`} href="/admin/workers" icon={<IconUsers size={16} />} />
+      </div>
+
+      {/* Row: 14-day trend + source split */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+        <div className="card p-5 lg:col-span-2 transition hover:shadow-md">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="font-semibold text-lg">Hours trend</h2>
+              <p className="text-xs text-[var(--color-muted)]">Last 14 days · clock-ins + timesheets</p>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold tabular-nums text-brand-700">
+                {minutesToHhMm(trend.reduce((s, d) => s + d.mins, 0))}
+              </div>
+              <div className="text-xs text-[var(--color-muted)]">fortnight total</div>
+            </div>
+          </div>
+          <HoursTrend data={trend} />
+        </div>
+
+        <div className="card p-5 transition hover:shadow-md">
+          <h2 className="font-semibold text-lg mb-1">Timesheet vs clock-in</h2>
+          <p className="text-xs text-[var(--color-muted)] mb-3">Where hours come from</p>
+          <SourceDonut ts={split.ts} sh={split.sh} />
+        </div>
+      </div>
+
+      {/* Row: hours by site + top workers */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+        <div className="card p-5 transition hover:shadow-md">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-lg">Hours by site</h2>
+            <Link href="/admin/reports" className="text-sm text-brand-600 font-medium hover:underline">Reports →</Link>
+          </div>
+          {bySite.length === 0
+            ? <EmptyState icon={<IconMapPin size={22} />} title="No hours logged yet" />
+            : <HBars rows={bySite} color="var(--color-brand-500)" />}
+        </div>
+
+        <div className="card p-5 transition hover:shadow-md">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-lg">Top workers</h2>
+            <Link href="/admin/workers" className="text-sm text-brand-600 font-medium hover:underline">All workers →</Link>
+          </div>
+          {byWorker.length === 0
+            ? <EmptyState icon={<IconUsers size={22} />} title="No hours logged yet" />
+            : <HBars rows={byWorker} color="var(--color-ocean-500)" />}
+        </div>
       </div>
 
       {/* Row: weekly hours + attention */}
@@ -275,6 +387,122 @@ function WeeklyBars({ data }: { data: number[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function HoursTrend({ data }: { data: { label: string; mins: number }[] }) {
+  const max = Math.max(1, ...data.map((d) => d.mins));
+  const n = data.length;
+  const pts = data.map((d, i) => ({
+    x: n === 1 ? 0 : (i / (n - 1)) * 100,
+    y: 38 - (d.mins / max) * 34, // 0..40 viewBox, small top/bottom padding
+  }));
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(" ");
+  const area = `${line} L100,40 L0,40 Z`;
+  return (
+    <div className="relative h-40">
+      <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="w-full h-full">
+        <defs>
+          <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-brand-500)" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="var(--color-brand-500)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={area} fill="url(#trendFill)" />
+        <path d={line} fill="none" stroke="var(--color-brand-600)" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+      {data.map((d, i) => (
+        <div
+          key={i}
+          className="group absolute top-0 bottom-5"
+          style={{ left: `${pts[i].x}%`, width: `${100 / n}%`, transform: "translateX(-50%)" }}
+        >
+          <span
+            className="absolute w-2.5 h-2.5 rounded-full bg-brand-600 ring-2 ring-white left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition"
+            style={{ top: `${(pts[i].y / 40) * 100}%` }}
+          />
+          <div
+            className="pointer-events-none absolute left-1/2 -translate-x-1/2 z-10 opacity-0 group-hover:opacity-100 transition"
+            style={{ top: `${(pts[i].y / 40) * 100}%` }}
+          >
+            <div className="-translate-y-[135%] bg-ink text-white text-xs font-medium rounded-lg px-2 py-1 shadow-lg whitespace-nowrap">
+              {d.label} · {d.mins > 0 ? minutesToHhMm(d.mins) : "0h"}
+            </div>
+          </div>
+        </div>
+      ))}
+      <div className="absolute left-0 right-0 bottom-0 flex justify-between text-[10px] text-[var(--color-muted)]">
+        <span>{data[0]?.label}</span>
+        <span>{data[Math.floor(n / 2)]?.label}</span>
+        <span>{data[n - 1]?.label}</span>
+      </div>
+    </div>
+  );
+}
+
+function HBars({ rows, color }: { rows: { name: string; mins: number }[]; color: string }) {
+  const max = Math.max(1, ...rows.map((r) => r.mins));
+  return (
+    <div className="space-y-3">
+      {rows.map((r) => (
+        <div key={r.name}>
+          <div className="flex items-center justify-between text-sm mb-1">
+            <span className="truncate pr-2">{r.name}</span>
+            <span className="font-medium tabular-nums text-[var(--color-ink-soft)]">{minutesToHhMm(r.mins)}</span>
+          </div>
+          <div className="h-2.5 rounded-full bg-[var(--color-canvas)] overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${Math.max(4, (r.mins / max) * 100)}%`, background: color }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SourceDonut({ ts, sh }: { ts: number; sh: number }) {
+  const total = ts + sh;
+  const r = 54;
+  const c = 2 * Math.PI * r;
+  const tsLen = total ? (ts / total) * c : 0;
+  const shLen = total ? (sh / total) * c : 0;
+  const pct = total ? Math.round((ts / total) * 100) : 0;
+  return (
+    <div className="flex items-center gap-4">
+      <div className="relative shrink-0" style={{ width: 132, height: 132 }}>
+        <svg width="132" height="132" viewBox="0 0 140 140" className="-rotate-90">
+          <circle cx="70" cy="70" r={r} fill="none" stroke="var(--color-line)" strokeWidth="16" />
+          {total > 0 && (
+            <>
+              <circle cx="70" cy="70" r={r} fill="none" stroke="var(--color-brand-500)" strokeWidth="16" strokeDasharray={`${tsLen} ${c}`} />
+              <circle cx="70" cy="70" r={r} fill="none" stroke="var(--color-ocean-500)" strokeWidth="16" strokeDasharray={`${shLen} ${c}`} strokeDashoffset={-tsLen} />
+            </>
+          )}
+        </svg>
+        <div className="absolute inset-0 grid place-items-center">
+          <div className="text-center">
+            <div className="text-base font-bold tabular-nums leading-none">{minutesToHhMm(total)}</div>
+            <div className="text-[10px] text-[var(--color-muted)]">total</div>
+          </div>
+        </div>
+      </div>
+      <div className="space-y-2 text-sm min-w-0 flex-1">
+        <SplitLegend color="var(--color-brand-500)" label="Timesheets" mins={ts} pct={pct} />
+        <SplitLegend color="var(--color-ocean-500)" label="Clock-ins" mins={sh} pct={total ? 100 - pct : 0} />
+      </div>
+    </div>
+  );
+}
+
+function SplitLegend({ color, label, mins, pct }: { color: string; label: string; mins: number; pct: number }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: color }} />
+      <span className="text-[var(--color-ink-soft)]">{label}</span>
+      <span className="ml-auto font-medium tabular-nums">{minutesToHhMm(mins)} · {pct}%</span>
     </div>
   );
 }

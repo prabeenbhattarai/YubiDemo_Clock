@@ -364,24 +364,33 @@ function TimesheetsReport({ siteId, sites }: { siteId: string; sites: Site[] }) 
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [editTs, setEditTs] = useState<Timesheet | null>(null);
   const [adding, setAdding] = useState(false);
+  const [worker, setWorker] = useState("all");
 
   // Scope to the chosen site/project first.
   const visibleTs = useMemo(
     () => timesheets.filter((t) => belongsToSite(t, siteId, sites)),
     [timesheets, siteId, sites]
   );
+  const workerNames = useMemo(
+    () => Array.from(new Set(visibleTs.map((t) => t.workerName))).sort((a, b) => a.localeCompare(b)),
+    [visibleTs]
+  );
+  const scopedTs = useMemo(
+    () => visibleTs.filter((t) => worker === "all" || t.workerName === worker),
+    [visibleTs, worker]
+  );
 
   // Only timesheets (no clock-in shifts) — completely separate export.
   const entries = useMemo(
-    () => buildSiteEntries([], visibleTs, workers).filter((e) => period === ALL || isWithinFortnight(e.dateKey, period)),
-    [visibleTs, workers, period]
+    () => buildSiteEntries([], scopedTs, workers).filter((e) => period === ALL || isWithinFortnight(e.dateKey, period)),
+    [scopedTs, workers, period]
   );
   const exportGroups = useMemo(() => groupByLocation(entries), [entries]);
   const exportTotal = exportGroups.reduce((s, g) => s + g.totalMinutes, 0);
 
   const groups = useMemo(() => {
     const titleByUid = new Map(workers.filter((w) => w.uid).map((w) => [w.uid!, w.jobTitle || ""]));
-    const inPeriod = visibleTs.filter((t) => period === ALL || isWithinFortnight(auDateKey(t.startAt), period));
+    const inPeriod = scopedTs.filter((t) => period === ALL || isWithinFortnight(auDateKey(t.startAt), period));
     const m = new Map<string, { key: string; name: string; jobTitle: string; items: Timesheet[] }>();
     for (const t of inPeriod) {
       const key = t.workerUid || t.workerName;
@@ -396,7 +405,7 @@ function TimesheetsReport({ siteId, sites }: { siteId: string; sites: Site[] }) 
         pending: g.items.filter((t) => t.status === "pending").length,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [visibleTs, workers, period]);
+  }, [scopedTs, workers, period]);
 
   const pendingTotal = useMemo(() => groups.reduce((s, g) => s + g.pending, 0), [groups]);
 
@@ -426,6 +435,13 @@ function TimesheetsReport({ siteId, sites }: { siteId: string; sites: Site[] }) 
           <select className="input max-w-xs" value={period} onChange={(e) => setPeriod(e.target.value)}>
             <option value={ALL}>All periods</option>
             {periods.map((p) => (<option key={p.startKey} value={p.startKey}>{p.label}</option>))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Worker</label>
+          <select className="input max-w-xs" value={worker} onChange={(e) => setWorker(e.target.value)}>
+            <option value="all">All workers</option>
+            {workerNames.map((w) => (<option key={w} value={w}>{w}</option>))}
           </select>
         </div>
         <span className="text-xs text-[var(--color-muted)] self-end pb-3">

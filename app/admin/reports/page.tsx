@@ -7,6 +7,7 @@ import { formatAuTime, minutesToHhMm } from "@/lib/time";
 import {
   buildSiteEntries,
   groupByLocation,
+  groupByWorker,
   timesheetWorkedMinutes,
   auDateKey,
   type ExportEntry,
@@ -37,6 +38,10 @@ import PlaceSearch from "@/components/place-search";
 
 const ALL = "all";
 type Tab = "timesheets" | "shifts";
+
+/** How the timesheets report is grouped on screen and in print/export. */
+type TsView = "worker" | "site";
+const TS_VIEW_KEY = "reports.timesheets.view";
 
 export default function ReportsPage() {
   const [tab, setTab] = useState<Tab>("timesheets");
@@ -163,7 +168,8 @@ function hoursNum(min: number): number {
  */
 async function downloadHoursXlsx(
   groups: { label: string; entries: ExportEntry[]; totalMinutes: number }[],
-  filename: string
+  filename: string,
+  groupNoun: "Site" | "Worker" = "Site"
 ) {
   const mod = await import("xlsx-js-style");
   const XLSX = (mod as unknown as { default?: typeof mod }).default ?? mod;
@@ -187,8 +193,9 @@ async function downloadHoursXlsx(
 
   for (const g of groups) {
     const fullAddr = g.entries.reduce((a, e) => (e.location && e.location.length > a.length ? e.location : a), "") || g.label || "Unspecified";
+    const heading = groupNoun === "Worker" ? (g.label || "Unspecified") : fullAddr;
     merges.push({ s: { r, c: 0 }, e: { r, c: 3 } });
-    push([`Site: ${fullAddr}`, "", "", ""], "site");
+    push([`${groupNoun}: ${heading}`, "", "", ""], "site");
     push(["S.N", "Date", "Time", "Total Hours"], "head");
     g.entries.forEach((e, i) => {
       const time = e.inMs || e.outMs ? `${csvClock(e.inMs)} – ${csvClock(e.outMs)}` : "";
@@ -365,6 +372,25 @@ function TimesheetsReport({ siteId, sites }: { siteId: string; sites: Site[] }) 
   const [editTs, setEditTs] = useState<Timesheet | null>(null);
   const [adding, setAdding] = useState(false);
   const [worker, setWorker] = useState("all");
+  // Grouping choice, remembered per-browser. Safe to read localStorage in the
+  // initializer: this component only mounts after the admin picks a site (a
+  // post-hydration client interaction), so there is no SSR mismatch.
+  const [view, setView] = useState<TsView>(() => {
+    if (typeof window === "undefined") return "worker";
+    try {
+      return localStorage.getItem(TS_VIEW_KEY) === "site" ? "site" : "worker";
+    } catch {
+      return "worker";
+    }
+  });
+  function chooseView(next: TsView) {
+    setView(next);
+    try {
+      localStorage.setItem(TS_VIEW_KEY, next);
+    } catch {
+      /* ignore */
+    }
+  }
 
   // Scope to the chosen site/project first.
   const visibleTs = useMemo(
@@ -386,7 +412,10 @@ function TimesheetsReport({ siteId, sites }: { siteId: string; sites: Site[] }) 
     [scopedTs, workers, period]
   );
   const exportGroups = useMemo(() => groupByLocation(entries), [entries]);
+  const workerGroups = useMemo(() => groupByWorker(entries), [entries]);
   const exportTotal = exportGroups.reduce((s, g) => s + g.totalMinutes, 0);
+  // Groups feeding the on-screen tables (site view), print area, and export.
+  const printGroups = view === "site" ? exportGroups : workerGroups;
 
   const groups = useMemo(() => {
     const titleByUid = new Map(workers.filter((w) => w.uid).map((w) => [w.uid!, w.jobTitle || ""]));
@@ -444,16 +473,39 @@ function TimesheetsReport({ siteId, sites }: { siteId: string; sites: Site[] }) 
             {workerNames.map((w) => (<option key={w} value={w}>{w}</option>))}
           </select>
         </div>
+        <div>
+          <label className="label">View</label>
+          <div className="flex gap-1" role="group" aria-label="Group timesheets by">
+            {(["worker", "site"] as TsView[]).map((v) => (
+              <button
+                key={v}
+                onClick={() => chooseView(v)}
+                aria-pressed={view === v}
+                className={`px-3 py-2 rounded-xl text-sm font-medium ${
+                  view === v ? "bg-ink text-white" : "bg-white border border-[var(--color-line)]"
+                }`}
+              >
+                {v === "worker" ? "By worker" : "By site"}
+              </button>
+            ))}
+          </div>
+        </div>
         <span className="text-xs text-[var(--color-muted)] self-end pb-3">
-          {groups.length} worker{groups.length === 1 ? "" : "s"}
+          {view === "site"
+            ? `${exportGroups.length} site${exportGroups.length === 1 ? "" : "s"}`
+            : `${groups.length} worker${groups.length === 1 ? "" : "s"}`}
         </span>
         <div className="flex gap-2 ml-auto self-end pb-1">
           <button className="btn-primary" onClick={() => setAdding(true)}>+ Add timesheet</button>
-          <button className="btn-outline" disabled={exportGroups.length === 0}
-            onClick={() => downloadHoursXlsx(exportGroups, `yubi-timesheets-${new Date().toISOString().slice(0, 10)}.xlsx`)}>
+          <button className="btn-outline" disabled={printGroups.length === 0}
+            onClick={() => downloadHoursXlsx(
+              printGroups,
+              `yubi-timesheets-by-${view}-${new Date().toISOString().slice(0, 10)}.xlsx`,
+              view === "site" ? "Site" : "Worker",
+            )}>
             Export Excel
           </button>
-          <button className="btn-outline" disabled={exportGroups.length === 0} onClick={() => window.print()}>
+          <button className="btn-outline" disabled={printGroups.length === 0} onClick={() => window.print()}>
             Download PDF
           </button>
         </div>
@@ -468,20 +520,29 @@ function TimesheetsReport({ siteId, sites }: { siteId: string; sites: Site[] }) 
 
       {adding && <AddTimesheetModal onClose={() => setAdding(false)} />}
 
-      {/* Print-only timesheet hours report */}
+      {/* Print-only timesheet hours report — follows the chosen view. */}
       <div className="print-area hidden print:block">
         <div className="mb-4">
-          <h2 className="text-xl font-bold">Yubi Demolition — Timesheet hours by site</h2>
+          <h2 className="text-xl font-bold">
+            Yubi Demolition — Timesheet hours by {view === "site" ? "site" : "worker"}
+          </h2>
           <p className="text-sm">{period === ALL ? "All periods" : `Fortnight: ${fortnightLabel(period)}`}</p>
         </div>
-        <GroupedHoursTables groups={exportGroups} />
+        <GroupedHoursTables groups={printGroups} />
         <div className="flex justify-end items-center gap-3 px-1 py-2 font-semibold">
           Grand total: <span className="text-brand-700">{minutesToHhMm(exportTotal)}</span>
         </div>
       </div>
 
-      {groups.length === 0 ? (
+      {printGroups.length === 0 ? (
         <EmptyState icon={<IconClipboard size={22} />} title="No timesheets in this period" subtitle="Choose another working period." />
+      ) : view === "site" ? (
+        <div className="space-y-3 no-print">
+          <GroupedHoursTables groups={exportGroups} />
+          <div className="flex justify-end items-center gap-3 px-1 py-2 font-semibold">
+            Grand total: <span className="text-brand-700">{minutesToHhMm(exportTotal)}</span>
+          </div>
+        </div>
       ) : (
         <div className="space-y-3 no-print">
           {groups.map((g) => {

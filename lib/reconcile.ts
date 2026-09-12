@@ -291,3 +291,28 @@ export function groupByLocation(entries: ExportEntry[]): {
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
 }
+
+/**
+ * Group entries by worker (keyed on uid, falling back to name), with the worker
+ * name as the display label. Same shape as `groupByLocation` so the on-screen
+ * tables, PDF print area, and .xlsx export can render either grouping.
+ */
+export function groupByWorker(entries: ExportEntry[]): {
+  label: string;
+  entries: ExportEntry[];
+  totalMinutes: number;
+}[] {
+  const groups = new Map<string, { label: string; entries: ExportEntry[] }>();
+  for (const e of entries) {
+    const key = e.workerUid || e.workerName || "unknown";
+    if (!groups.has(key)) groups.set(key, { label: e.workerName || "Unknown", entries: [] });
+    groups.get(key)!.entries.push(e);
+  }
+  return [...groups.values()]
+    .map((g) => ({
+      label: g.label,
+      entries: g.entries.sort((a, b) => a.dateKey.localeCompare(b.dateKey)),
+      totalMinutes: g.entries.reduce((s, e) => s + e.totalMinutes, 0),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}

@@ -60,15 +60,20 @@ export interface Fortnight {
   label: string;
 }
 
-/** Recent fortnights (current + a few future/past), newest first. */
-export function listFortnights(pastCount = 12, futureCount = 3): Fortnight[] {
-  const curStart = fortnightStartKey(auDateKey(Date.now()));
+// Fixed bounds for the selectable working periods (both are grid Mondays):
+//   earliest = 27 Jul – 9 Aug 2026, latest = 26 Jul – 8 Aug 2027.
+// Bounding the list keeps stale early periods out of every picker and caps the
+// future at July 2027; extend MAX_PERIOD_START when the next year is needed.
+export const MIN_PERIOD_START = "2026-07-27";
+export const MAX_PERIOD_START = "2027-07-26";
+
+/** All selectable working periods, newest first, within the fixed bounds. */
+export function listFortnights(): Fortnight[] {
   const out: Fortnight[] = [];
-  for (let i = futureCount; i >= -pastCount; i--) {
-    const startKey = addDaysKey(curStart, i * 14);
-    out.push({ startKey, endKey: fortnightEndKey(startKey), label: fortnightLabel(startKey) });
+  for (let k = MIN_PERIOD_START; k <= MAX_PERIOD_START; k = addDaysKey(k, 14)) {
+    out.push({ startKey: k, endKey: fortnightEndKey(k), label: fortnightLabel(k) });
   }
-  return out;
+  return out.reverse(); // newest first
 }
 
 /** Is the given date key inside the fortnight starting at startKey? */

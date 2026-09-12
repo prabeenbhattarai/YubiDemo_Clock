@@ -9,6 +9,7 @@ import { auDateKey } from "@/lib/reconcile";
 import { SITE_ALL, belongsToSite } from "@/lib/site-filter";
 import { listFortnights, isWithinFortnight, fortnightLabel, fortnightStartKey } from "@/lib/fortnight";
 import { StatusPill, Spinner, EmptyState } from "@/components/ui";
+import { PrintWatermark, PrintDisclaimer } from "@/components/print-extras";
 import Modal from "@/components/modal";
 import { ShiftDetailModal, TimesheetDetailModal } from "@/components/record-detail";
 import ShiftMap from "@/components/shift-map";
@@ -670,6 +671,7 @@ function TimesheetsPrint({ rows, subtitle }: { rows: Timesheet[]; subtitle: stri
   const total = rows.reduce((s, t) => s + (t.adminTotalMinutes ?? t.totalMinutes ?? 0), 0);
   return (
     <div className="print-area hidden print:block">
+      <PrintWatermark />
       <PrintHeader title="Yubi Demolition — Timesheets" subtitle={subtitle} />
       {rows.length === 0 ? (
         <p style={{ fontSize: 12 }}>No records for this filter.</p>
@@ -701,6 +703,7 @@ function TimesheetsPrint({ rows, subtitle }: { rows: Timesheet[]; subtitle: stri
           </div>
         </>
       )}
+      <PrintDisclaimer />
     </div>
   );
 }
@@ -710,6 +713,7 @@ function ShiftsPrint({ rows, subtitle }: { rows: Shift[]; subtitle: string }) {
   const total = rows.reduce((s, sh) => s + shiftWorkedMinutes(sh), 0);
   return (
     <div className="print-area hidden print:block">
+      <PrintWatermark />
       <PrintHeader title="Yubi Demolition — Clock-in shifts" subtitle={subtitle} />
       {rows.length === 0 ? (
         <p style={{ fontSize: 12 }}>No records for this filter.</p>
@@ -743,6 +747,7 @@ function ShiftsPrint({ rows, subtitle }: { rows: Shift[]; subtitle: string }) {
           </div>
         </>
       )}
+      <PrintDisclaimer />
     </div>
   );
 }

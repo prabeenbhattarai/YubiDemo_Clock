@@ -19,6 +19,7 @@ import {
   fortnightLabel,
 } from "@/lib/fortnight";
 import { Spinner, EmptyState, StatusPill } from "@/components/ui";
+import { PrintWatermark, PrintDisclaimer } from "@/components/print-extras";
 import Modal from "@/components/modal";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/confirm";
@@ -522,6 +523,7 @@ function TimesheetsReport({ siteId, sites }: { siteId: string; sites: Site[] }) 
 
       {/* Print-only timesheet hours report — follows the chosen view. */}
       <div className="print-area hidden print:block">
+        <PrintWatermark />
         <div className="mb-4">
           <h2 className="text-xl font-bold">
             Yubi Demolition — Timesheet hours by {view === "site" ? "site" : "worker"}
@@ -532,6 +534,7 @@ function TimesheetsReport({ siteId, sites }: { siteId: string; sites: Site[] }) 
         <div className="flex justify-end items-center gap-3 px-1 py-2 font-semibold">
           Grand total: <span className="text-brand-700">{minutesToHhMm(exportTotal)}</span>
         </div>
+        <PrintDisclaimer />
       </div>
 
       {printGroups.length === 0 ? (
@@ -692,6 +695,7 @@ function ShiftsReport({ siteId, sites }: { siteId: string; sites: Site[] }) {
       </p>
 
       <div className="print-area">
+        <PrintWatermark />
         <div className="hidden print:block mb-4">
           <h2 className="text-xl font-bold">Yubi Demolition — Clock-in shift hours by site</h2>
           <p className="text-sm">{period === ALL ? rangeLabel(from, to) : `Fortnight: ${fortnightLabel(period)}`}</p>
@@ -708,6 +712,7 @@ function ShiftsReport({ siteId, sites }: { siteId: string; sites: Site[] }) {
             Grand total: <span className="text-brand-700">{minutesToHhMm(grandTotal)}</span>
           </div>
         )}
+        <PrintDisclaimer />
       </div>
 
       {editShift && <EditShift shift={editShift} onClose={() => setEditShift(null)} />}

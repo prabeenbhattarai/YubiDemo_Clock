@@ -120,6 +120,11 @@ body {
   }
 }
 
+/* Company logo watermark is print-only; hidden on screen. */
+.print-watermark {
+  display: none;
+}
+
 /* Print: isolate the report area so PDF export is clean */
 @media print {
   body * {
@@ -135,9 +140,28 @@ body {
     top: 0;
     width: 100%;
     padding: 0;
+    z-index: 0; /* stacking context so the watermark can sit behind content */
   }
   .no-print {
     display: none !important;
+  }
+  /* Logo watermark, centred and repeated on every printed page, behind text
+     and images. Uses an <img> (not a CSS background) so it prints without the
+     browser's "Background graphics" option enabled. */
+  .print-watermark {
+    display: flex !important;
+    position: fixed;
+    inset: 0;
+    align-items: center;
+    justify-content: center;
+    z-index: -1;
+    pointer-events: none;
+  }
+  .print-watermark img {
+    width: 65%;
+    max-width: 520px;
+    height: auto;
+    opacity: 0.08;
   }
 }
 

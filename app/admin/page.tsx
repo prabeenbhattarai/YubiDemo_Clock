@@ -61,6 +61,86 @@ function tsMins(t: Timesheet): number {
   return t.adminTotalMinutes ?? t.totalMinutes ?? 0;
 }
 
+const ALL = "all";
+type GraphKey = "trend" | "split" | "bySite" | "byWorker" | "weekly";
+const GRAPH_TITLES: Record<GraphKey, string> = {
+  trend: "Hours trend",
+  split: "Timesheet vs clock-in",
+  bySite: "Hours by site",
+  byWorker: "Top workers",
+  weekly: "Hours logged by weekday",
+};
+
+/** Records limited to a working period (or all, for "all"). */
+function inPeriod<T>(rows: T[], getMs: (r: T) => number, period: string): T[] {
+  return period === ALL ? rows : rows.filter((r) => isWithinFortnight(auDayKey(getMs(r)), period));
+}
+
+// --- Graph datasets, computed from already period-filtered records. Shared by
+//     the dashboard cards and the zoom popup so both always agree. ---
+
+function calcWeekly(shifts: Shift[], timesheets: Timesheet[]): number[] {
+  const buckets = [0, 0, 0, 0, 0, 0, 0];
+  for (const s of shifts) if (s.durationMinutes) buckets[auWeekday(s.startedAt)] += shiftWorkedMinutes(s);
+  for (const t of timesheets) buckets[auWeekday(t.startAt)] += t.adminTotalMinutes ?? t.totalMinutes;
+  return buckets;
+}
+
+function calcTrend(
+  shifts: Shift[],
+  timesheets: Timesheet[],
+  period: string
+): { key: string; label: string; mins: number }[] {
+  const days: { key: string; label: string; mins: number }[] = [];
+  const idx = new Map<string, number>();
+  if (period === ALL) {
+    const now = Date.now();
+    for (let i = 13; i >= 0; i--) {
+      const key = auDayKey(now - i * 86400000);
+      idx.set(key, days.length);
+      days.push({ key, label: keyLabel(key), mins: 0 });
+    }
+  } else {
+    for (let i = 0; i < 14; i++) {
+      const key = addDaysKey(period, i);
+      idx.set(key, days.length);
+      days.push({ key, label: keyLabel(key), mins: 0 });
+    }
+  }
+  for (const s of shifts) { const i = idx.get(auDayKey(s.startedAt)); if (i != null) days[i].mins += shiftMins(s); }
+  for (const t of timesheets) { const i = idx.get(auDayKey(t.startAt)); if (i != null) days[i].mins += tsMins(t); }
+  return days;
+}
+
+function calcBySite(
+  shifts: Shift[],
+  timesheets: Timesheet[],
+  sites: Site[],
+  limit = 6
+): { name: string; mins: number }[] {
+  const m = new Map<string, number>();
+  const nameOf = (id?: string) => (id ? sites.find((s) => s.id === id)?.name : undefined);
+  const add = (name: string, mins: number) => { if (mins) m.set(name, (m.get(name) || 0) + mins); };
+  for (const s of shifts) add(nameOf(s.siteId) || s.siteName || "Unspecified", shiftMins(s));
+  for (const t of timesheets) add(nameOf(t.siteId) || t.siteLabel || "Unspecified", tsMins(t));
+  return [...m.entries()].map(([name, mins]) => ({ name, mins })).sort((a, b) => b.mins - a.mins).slice(0, limit);
+}
+
+function calcByWorker(shifts: Shift[], timesheets: Timesheet[], limit = 6): { name: string; mins: number }[] {
+  const m = new Map<string, number>();
+  const add = (name: string, mins: number) => { if (mins) m.set(name, (m.get(name) || 0) + mins); };
+  for (const s of shifts) add(s.workerName || "—", shiftMins(s));
+  for (const t of timesheets) add(t.workerName || "—", tsMins(t));
+  return [...m.entries()].map(([name, mins]) => ({ name, mins })).sort((a, b) => b.mins - a.mins).slice(0, limit);
+}
+
+function calcSplit(shifts: Shift[], timesheets: Timesheet[]): { ts: number; sh: number } {
+  let ts = 0, sh = 0;
+  for (const s of shifts) sh += shiftMins(s);
+  for (const t of timesheets) ts += tsMins(t);
+  return { ts, sh };
+}
+
 export default function AdminDashboard() {
   const { data: shifts } = useLiveCollection<Shift>("shifts", []);
   const { data: timesheets } = useLiveCollection<Timesheet>("timesheets", []);
@@ -71,9 +151,9 @@ export default function AdminDashboard() {
 
   // Working-period filter that drives every hours graph below. Live stat cards
   // (on-shift, off-site, pending) stay real-time and ignore it.
-  const ALL = "all";
   const periods = useMemo(() => listFortnights(), []);
   const [period, setPeriod] = useState<string>(() => fortnightStartKey(auDayKey(Date.now())));
+  const [zoom, setZoom] = useState<GraphKey | null>(null);
 
   const active = shifts.filter((s) => s.status === "active");
   const offsite = active.filter((s) => s.currentlyInside === false);
@@ -82,76 +162,14 @@ export default function AdminDashboard() {
     timesheets.filter((t) => t.status === "pending").length;
 
   // Records limited to the chosen working period (or everything, for "All").
-  const pShifts = useMemo(
-    () => (period === ALL ? shifts : shifts.filter((s) => isWithinFortnight(auDayKey(s.startedAt), period))),
-    [shifts, period]
-  );
-  const pTimesheets = useMemo(
-    () => (period === ALL ? timesheets : timesheets.filter((t) => isWithinFortnight(auDayKey(t.startAt), period))),
-    [timesheets, period]
-  );
+  const pShifts = useMemo(() => inPeriod(shifts, (s) => s.startedAt, period), [shifts, period]);
+  const pTimesheets = useMemo(() => inPeriod(timesheets, (t) => t.startAt, period), [timesheets, period]);
 
-  const weekly = useMemo(() => {
-    const buckets = [0, 0, 0, 0, 0, 0, 0];
-    for (const s of pShifts) {
-      if (s.durationMinutes) buckets[auWeekday(s.startedAt)] += shiftWorkedMinutes(s);
-    }
-    for (const t of pTimesheets) {
-      buckets[auWeekday(t.startAt)] += t.adminTotalMinutes ?? t.totalMinutes;
-    }
-    return buckets;
-  }, [pShifts, pTimesheets]);
-
-  // 14-day hours trend (clock-in + timesheet minutes per AU day). For a chosen
-  // period this is the fortnight's 14 days; for "All" it's the rolling 14 days.
-  const trend = useMemo(() => {
-    const days: { key: string; label: string; mins: number }[] = [];
-    const idx = new Map<string, number>();
-    if (period === ALL) {
-      const now = Date.now();
-      for (let i = 13; i >= 0; i--) {
-        const key = auDayKey(now - i * 86400000);
-        idx.set(key, days.length);
-        days.push({ key, label: keyLabel(key), mins: 0 });
-      }
-    } else {
-      for (let i = 0; i < 14; i++) {
-        const key = addDaysKey(period, i);
-        idx.set(key, days.length);
-        days.push({ key, label: keyLabel(key), mins: 0 });
-      }
-    }
-    for (const s of pShifts) { const i = idx.get(auDayKey(s.startedAt)); if (i != null) days[i].mins += shiftMins(s); }
-    for (const t of pTimesheets) { const i = idx.get(auDayKey(t.startAt)); if (i != null) days[i].mins += tsMins(t); }
-    return days;
-  }, [pShifts, pTimesheets, period]);
-
-  // Hours by site (resolve siteId to a name; fall back to the record's label).
-  const bySite = useMemo(() => {
-    const m = new Map<string, number>();
-    const nameOf = (id?: string) => (id ? sites.find((s) => s.id === id)?.name : undefined);
-    const add = (name: string, mins: number) => { if (mins) m.set(name, (m.get(name) || 0) + mins); };
-    for (const s of pShifts) add(nameOf(s.siteId) || s.siteName || "Unspecified", shiftMins(s));
-    for (const t of pTimesheets) add(nameOf(t.siteId) || t.siteLabel || "Unspecified", tsMins(t));
-    return [...m.entries()].map(([name, mins]) => ({ name, mins })).sort((a, b) => b.mins - a.mins).slice(0, 6);
-  }, [pShifts, pTimesheets, sites]);
-
-  // Top workers by hours logged.
-  const byWorker = useMemo(() => {
-    const m = new Map<string, number>();
-    const add = (name: string, mins: number) => { if (mins) m.set(name, (m.get(name) || 0) + mins); };
-    for (const s of pShifts) add(s.workerName || "—", shiftMins(s));
-    for (const t of pTimesheets) add(t.workerName || "—", tsMins(t));
-    return [...m.entries()].map(([name, mins]) => ({ name, mins })).sort((a, b) => b.mins - a.mins).slice(0, 6);
-  }, [pShifts, pTimesheets]);
-
-  // Timesheet vs clock-in split.
-  const split = useMemo(() => {
-    let ts = 0, sh = 0;
-    for (const s of pShifts) sh += shiftMins(s);
-    for (const t of pTimesheets) ts += tsMins(t);
-    return { ts, sh };
-  }, [pShifts, pTimesheets]);
+  const weekly = useMemo(() => calcWeekly(pShifts, pTimesheets), [pShifts, pTimesheets]);
+  const trend = useMemo(() => calcTrend(pShifts, pTimesheets, period), [pShifts, pTimesheets, period]);
+  const bySite = useMemo(() => calcBySite(pShifts, pTimesheets, sites), [pShifts, pTimesheets, sites]);
+  const byWorker = useMemo(() => calcByWorker(pShifts, pTimesheets), [pShifts, pTimesheets]);
+  const split = useMemo(() => calcSplit(pShifts, pTimesheets), [pShifts, pTimesheets]);
 
   const reviewables = [
     ...shifts.filter((s) => s.status === "completed").map((s) => s.approvalStatus),
@@ -204,13 +222,17 @@ export default function AdminDashboard() {
               </div>
             </div>
           </div>
-          <HoursTrend data={trend} />
+          <div className="cursor-zoom-in" onClick={() => setZoom("trend")} title="Click to enlarge">
+            <HoursTrend data={trend} />
+          </div>
         </div>
 
         <div className="card p-5 transition hover:shadow-md">
           <h2 className="font-semibold text-lg mb-1">Timesheet vs clock-in</h2>
           <p className="text-xs text-[var(--color-muted)] mb-3">Where hours come from</p>
-          <SourceDonut ts={split.ts} sh={split.sh} />
+          <div className="cursor-zoom-in" onClick={() => setZoom("split")} title="Click to enlarge">
+            <SourceDonut ts={split.ts} sh={split.sh} />
+          </div>
         </div>
       </div>
 
@@ -221,9 +243,11 @@ export default function AdminDashboard() {
             <h2 className="font-semibold text-lg">Hours by site</h2>
             <Link href="/admin/reports" className="text-sm text-brand-600 font-medium hover:underline">Reports →</Link>
           </div>
-          {bySite.length === 0
-            ? <EmptyState icon={<IconMapPin size={22} />} title="No hours logged yet" />
-            : <HBars rows={bySite} color="var(--color-brand-500)" />}
+          <div className="cursor-zoom-in" onClick={() => setZoom("bySite")} title="Click to enlarge">
+            {bySite.length === 0
+              ? <EmptyState icon={<IconMapPin size={22} />} title="No hours logged yet" />
+              : <HBars rows={bySite} color="var(--color-brand-500)" />}
+          </div>
         </div>
 
         <div className="card p-5 transition hover:shadow-md">
@@ -231,9 +255,11 @@ export default function AdminDashboard() {
             <h2 className="font-semibold text-lg">Top workers</h2>
             <Link href="/admin/workers" className="text-sm text-brand-600 font-medium hover:underline">All workers →</Link>
           </div>
-          {byWorker.length === 0
-            ? <EmptyState icon={<IconUsers size={22} />} title="No hours logged yet" />
-            : <HBars rows={byWorker} color="var(--color-ocean-500)" />}
+          <div className="cursor-zoom-in" onClick={() => setZoom("byWorker")} title="Click to enlarge">
+            {byWorker.length === 0
+              ? <EmptyState icon={<IconUsers size={22} />} title="No hours logged yet" />
+              : <HBars rows={byWorker} color="var(--color-ocean-500)" />}
+          </div>
         </div>
       </div>
 
@@ -244,7 +270,9 @@ export default function AdminDashboard() {
             <h2 className="font-semibold text-lg">Hours logged</h2>
             <span className="text-xs text-[var(--color-muted)]">by weekday · hover a bar</span>
           </div>
-          <WeeklyBars data={weekly} />
+          <div className="cursor-zoom-in" onClick={() => setZoom("weekly")} title="Click to enlarge">
+            <WeeklyBars data={weekly} />
+          </div>
         </div>
 
         <AttentionCard offsite={offsite} pending={pending} />
@@ -287,7 +315,100 @@ export default function AdminDashboard() {
           <ShiftMap shift={mapShift} site={sites.find((s) => s.id === mapShift.siteId) ?? null} />
         </Modal>
       )}
+
+      {zoom && (
+        <GraphModal
+          graph={zoom}
+          shifts={shifts}
+          timesheets={timesheets}
+          sites={sites}
+          periods={periods}
+          initialPeriod={period}
+          onClose={() => setZoom(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/* ----------------------------- graph zoom popup ---------------------------- */
+
+function GraphModal({
+  graph,
+  shifts,
+  timesheets,
+  sites,
+  periods,
+  initialPeriod,
+  onClose,
+}: {
+  graph: GraphKey;
+  shifts: Shift[];
+  timesheets: Timesheet[];
+  sites: Site[];
+  periods: { startKey: string; label: string }[];
+  initialPeriod: string;
+  onClose: () => void;
+}) {
+  const [period, setPeriod] = useState(initialPeriod);
+  const pShifts = useMemo(() => inPeriod(shifts, (s) => s.startedAt, period), [shifts, period]);
+  const pTimesheets = useMemo(() => inPeriod(timesheets, (t) => t.startAt, period), [timesheets, period]);
+
+  const trend = useMemo(() => calcTrend(pShifts, pTimesheets, period), [pShifts, pTimesheets, period]);
+  const weekly = useMemo(() => calcWeekly(pShifts, pTimesheets), [pShifts, pTimesheets]);
+  const bySite = useMemo(() => calcBySite(pShifts, pTimesheets, sites, 12), [pShifts, pTimesheets, sites]);
+  const byWorker = useMemo(() => calcByWorker(pShifts, pTimesheets, 12), [pShifts, pTimesheets]);
+  const split = useMemo(() => calcSplit(pShifts, pTimesheets), [pShifts, pTimesheets]);
+
+  const total =
+    graph === "trend"
+      ? trend.reduce((s, d) => s + d.mins, 0)
+      : graph === "weekly"
+      ? weekly.reduce((s, m) => s + m, 0)
+      : graph === "bySite"
+      ? bySite.reduce((s, r) => s + r.mins, 0)
+      : graph === "byWorker"
+      ? byWorker.reduce((s, r) => s + r.mins, 0)
+      : split.ts + split.sh;
+
+  return (
+    <Modal open onClose={onClose} title={GRAPH_TITLES[graph]} widthClass="sm:max-w-3xl">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-[var(--color-muted)]">Working period</span>
+          <select
+            className="input max-w-[220px] py-1.5"
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+          >
+            <option value={ALL}>All time</option>
+            {periods.map((p) => (<option key={p.startKey} value={p.startKey}>{p.label}</option>))}
+          </select>
+        </div>
+        <div className="text-right">
+          <div className="text-xl font-bold tabular-nums text-brand-700">{minutesToHhMm(total)}</div>
+          <div className="text-xs text-[var(--color-muted)]">total hours</div>
+        </div>
+      </div>
+
+      <div>
+        {graph === "trend" && <HoursTrend data={trend} heightClass="h-72" />}
+        {graph === "weekly" && <WeeklyBars data={weekly} heightClass="h-72" />}
+        {graph === "bySite" &&
+          (bySite.length === 0
+            ? <EmptyState icon={<IconMapPin size={22} />} title="No hours logged" />
+            : <HBars rows={bySite} color="var(--color-brand-500)" />)}
+        {graph === "byWorker" &&
+          (byWorker.length === 0
+            ? <EmptyState icon={<IconUsers size={22} />} title="No hours logged" />
+            : <HBars rows={byWorker} color="var(--color-ocean-500)" />)}
+        {graph === "split" && (
+          <div className="py-4">
+            <SourceDonut ts={split.ts} sh={split.sh} />
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -405,11 +526,11 @@ function StatCard({
   return href ? <Link href={href}>{body}</Link> : body;
 }
 
-function WeeklyBars({ data }: { data: number[] }) {
+function WeeklyBars({ data, heightClass = "h-40" }: { data: number[]; heightClass?: string }) {
   const max = Math.max(1, ...data);
   const peak = data.indexOf(max);
   return (
-    <div className="flex items-stretch justify-between gap-2 h-40">
+    <div className={`flex items-stretch justify-between gap-2 ${heightClass}`}>
       {data.map((v, i) => {
         const h = Math.max(6, Math.round((v / max) * 100));
         const isPeak = i === peak && v > 0;
@@ -442,7 +563,7 @@ function WeeklyBars({ data }: { data: number[] }) {
   );
 }
 
-function HoursTrend({ data }: { data: { label: string; mins: number }[] }) {
+function HoursTrend({ data, heightClass = "h-40" }: { data: { label: string; mins: number }[]; heightClass?: string }) {
   const max = Math.max(1, ...data.map((d) => d.mins));
   const n = data.length;
   const pts = data.map((d, i) => ({
@@ -452,7 +573,7 @@ function HoursTrend({ data }: { data: { label: string; mins: number }[] }) {
   const line = pts.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(" ");
   const area = `${line} L100,40 L0,40 Z`;
   return (
-    <div className="relative h-40">
+    <div className={`relative ${heightClass}`}>
       <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="w-full h-full">
         <defs>
           <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">

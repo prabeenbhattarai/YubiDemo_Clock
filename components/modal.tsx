@@ -8,12 +8,15 @@ export default function Modal({
   title,
   children,
   footer,
+  widthClass = "sm:max-w-lg",
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  /** Tailwind max-width class for the dialog (default `sm:max-w-lg`). */
+  widthClass?: string;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -31,7 +34,7 @@ export default function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full sm:max-w-lg bg-[var(--color-surface)] sm:rounded-2xl rounded-t-2xl shadow-xl max-h-[92dvh] flex flex-col">
+      <div className={`relative w-full ${widthClass} bg-[var(--color-surface)] sm:rounded-2xl rounded-t-2xl shadow-xl max-h-[92dvh] flex flex-col`}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-line)]">
           <h2 className="font-semibold text-lg">{title}</h2>
           <button

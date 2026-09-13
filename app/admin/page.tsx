@@ -5,6 +5,13 @@ import Link from "next/link";
 import { useLiveCollection } from "@/lib/live";
 import type { Shift, Site, Timesheet, Worker } from "@/lib/types";
 import { auParts, elapsed, greeting, minutesToHhMm, shiftWorkedMinutes } from "@/lib/time";
+import {
+  listFortnights,
+  isWithinFortnight,
+  fortnightStartKey,
+  fortnightLabel,
+  addDaysKey,
+} from "@/lib/fortnight";
 import { useNow } from "@/components/live-clock";
 import { EmptyState, StatusPill } from "@/components/ui";
 import Modal from "@/components/modal";
@@ -40,9 +47,11 @@ function auDayKey(ms: number): string {
     day: "2-digit",
   }).format(new Date(ms));
 }
-function auDayShort(ms: number): string {
-  return new Intl.DateTimeFormat("en-AU", { timeZone: AU_TZ, day: "numeric", month: "short" }).format(
-    new Date(ms)
+/** Short "day mon" label from an AU/plain date key (tz-robust). */
+function keyLabel(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-AU", { timeZone: "UTC", day: "numeric", month: "short" }).format(
+    Date.UTC(y, (m || 1) - 1, d || 1)
   );
 }
 function shiftMins(s: Shift): number {
@@ -59,65 +68,90 @@ export default function AdminDashboard() {
   const { data: sites } = useLiveCollection<Site>("sites", []);
 
   const [mapShift, setMapShift] = useState<Shift | null>(null);
+
+  // Working-period filter that drives every hours graph below. Live stat cards
+  // (on-shift, off-site, pending) stay real-time and ignore it.
+  const ALL = "all";
+  const periods = useMemo(() => listFortnights(), []);
+  const [period, setPeriod] = useState<string>(() => fortnightStartKey(auDayKey(Date.now())));
+
   const active = shifts.filter((s) => s.status === "active");
   const offsite = active.filter((s) => s.currentlyInside === false);
   const pending =
     shifts.filter((s) => s.status === "completed" && s.approvalStatus === "pending").length +
     timesheets.filter((t) => t.status === "pending").length;
 
+  // Records limited to the chosen working period (or everything, for "All").
+  const pShifts = useMemo(
+    () => (period === ALL ? shifts : shifts.filter((s) => isWithinFortnight(auDayKey(s.startedAt), period))),
+    [shifts, period]
+  );
+  const pTimesheets = useMemo(
+    () => (period === ALL ? timesheets : timesheets.filter((t) => isWithinFortnight(auDayKey(t.startAt), period))),
+    [timesheets, period]
+  );
+
   const weekly = useMemo(() => {
     const buckets = [0, 0, 0, 0, 0, 0, 0];
-    for (const s of shifts) {
+    for (const s of pShifts) {
       if (s.durationMinutes) buckets[auWeekday(s.startedAt)] += shiftWorkedMinutes(s);
     }
-    for (const t of timesheets) {
+    for (const t of pTimesheets) {
       buckets[auWeekday(t.startAt)] += t.adminTotalMinutes ?? t.totalMinutes;
     }
     return buckets;
-  }, [shifts, timesheets]);
+  }, [pShifts, pTimesheets]);
 
-  // 14-day hours trend (clock-in + timesheet minutes per AU day).
+  // 14-day hours trend (clock-in + timesheet minutes per AU day). For a chosen
+  // period this is the fortnight's 14 days; for "All" it's the rolling 14 days.
   const trend = useMemo(() => {
     const days: { key: string; label: string; mins: number }[] = [];
     const idx = new Map<string, number>();
-    const now = Date.now();
-    for (let i = 13; i >= 0; i--) {
-      const ms = now - i * 86400000;
-      const key = auDayKey(ms);
-      idx.set(key, days.length);
-      days.push({ key, label: auDayShort(ms), mins: 0 });
+    if (period === ALL) {
+      const now = Date.now();
+      for (let i = 13; i >= 0; i--) {
+        const key = auDayKey(now - i * 86400000);
+        idx.set(key, days.length);
+        days.push({ key, label: keyLabel(key), mins: 0 });
+      }
+    } else {
+      for (let i = 0; i < 14; i++) {
+        const key = addDaysKey(period, i);
+        idx.set(key, days.length);
+        days.push({ key, label: keyLabel(key), mins: 0 });
+      }
     }
-    for (const s of shifts) { const i = idx.get(auDayKey(s.startedAt)); if (i != null) days[i].mins += shiftMins(s); }
-    for (const t of timesheets) { const i = idx.get(auDayKey(t.startAt)); if (i != null) days[i].mins += tsMins(t); }
+    for (const s of pShifts) { const i = idx.get(auDayKey(s.startedAt)); if (i != null) days[i].mins += shiftMins(s); }
+    for (const t of pTimesheets) { const i = idx.get(auDayKey(t.startAt)); if (i != null) days[i].mins += tsMins(t); }
     return days;
-  }, [shifts, timesheets]);
+  }, [pShifts, pTimesheets, period]);
 
   // Hours by site (resolve siteId to a name; fall back to the record's label).
   const bySite = useMemo(() => {
     const m = new Map<string, number>();
     const nameOf = (id?: string) => (id ? sites.find((s) => s.id === id)?.name : undefined);
     const add = (name: string, mins: number) => { if (mins) m.set(name, (m.get(name) || 0) + mins); };
-    for (const s of shifts) add(nameOf(s.siteId) || s.siteName || "Unspecified", shiftMins(s));
-    for (const t of timesheets) add(nameOf(t.siteId) || t.siteLabel || "Unspecified", tsMins(t));
+    for (const s of pShifts) add(nameOf(s.siteId) || s.siteName || "Unspecified", shiftMins(s));
+    for (const t of pTimesheets) add(nameOf(t.siteId) || t.siteLabel || "Unspecified", tsMins(t));
     return [...m.entries()].map(([name, mins]) => ({ name, mins })).sort((a, b) => b.mins - a.mins).slice(0, 6);
-  }, [shifts, timesheets, sites]);
+  }, [pShifts, pTimesheets, sites]);
 
   // Top workers by hours logged.
   const byWorker = useMemo(() => {
     const m = new Map<string, number>();
     const add = (name: string, mins: number) => { if (mins) m.set(name, (m.get(name) || 0) + mins); };
-    for (const s of shifts) add(s.workerName || "—", shiftMins(s));
-    for (const t of timesheets) add(t.workerName || "—", tsMins(t));
+    for (const s of pShifts) add(s.workerName || "—", shiftMins(s));
+    for (const t of pTimesheets) add(t.workerName || "—", tsMins(t));
     return [...m.entries()].map(([name, mins]) => ({ name, mins })).sort((a, b) => b.mins - a.mins).slice(0, 6);
-  }, [shifts, timesheets]);
+  }, [pShifts, pTimesheets]);
 
   // Timesheet vs clock-in split.
   const split = useMemo(() => {
     let ts = 0, sh = 0;
-    for (const s of shifts) sh += shiftMins(s);
-    for (const t of timesheets) ts += tsMins(t);
+    for (const s of pShifts) sh += shiftMins(s);
+    for (const t of pTimesheets) ts += tsMins(t);
     return { ts, sh };
-  }, [shifts, timesheets]);
+  }, [pShifts, pTimesheets]);
 
   const reviewables = [
     ...shifts.filter((s) => s.status === "completed").map((s) => s.approvalStatus),
@@ -138,19 +172,36 @@ export default function AdminDashboard() {
         <StatCard title="Workers" value={workers.length} sub={`${sites.length} site${sites.length === 1 ? "" : "s"}`} href="/admin/workers" icon={<IconUsers size={16} />} />
       </div>
 
+      {/* Working-period filter — drives every graph below. */}
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-sm font-medium text-[var(--color-muted)]">Graphs for</span>
+        <select
+          className="input max-w-[220px] py-1.5"
+          value={period}
+          onChange={(e) => setPeriod(e.target.value)}
+        >
+          <option value={ALL}>All time</option>
+          {periods.map((p) => (<option key={p.startKey} value={p.startKey}>{p.label}</option>))}
+        </select>
+      </div>
+
       {/* Row: 14-day trend + source split */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
         <div className="card p-5 lg:col-span-2 transition hover:shadow-md">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="font-semibold text-lg">Hours trend</h2>
-              <p className="text-xs text-[var(--color-muted)]">Last 14 days · clock-ins + timesheets</p>
+              <p className="text-xs text-[var(--color-muted)]">
+                {period === ALL ? "Last 14 days" : fortnightLabel(period)} · clock-ins + timesheets
+              </p>
             </div>
             <div className="text-right">
               <div className="text-2xl font-bold tabular-nums text-brand-700">
                 {minutesToHhMm(trend.reduce((s, d) => s + d.mins, 0))}
               </div>
-              <div className="text-xs text-[var(--color-muted)]">fortnight total</div>
+              <div className="text-xs text-[var(--color-muted)]">
+                {period === ALL ? "14-day total" : "fortnight total"}
+              </div>
             </div>
           </div>
           <HoursTrend data={trend} />

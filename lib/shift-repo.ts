@@ -199,3 +199,58 @@ export async function adminEndShift(shiftId: string, by: string) {
   });
   return { durationMinutes };
 }
+
+/**
+ * Admin adds a completed shift by hand — used when a worker forgot to clock in
+ * and the admin enters the times from their message. There is no GPS fix or
+ * photo, so location/track/photo fields are left null and the record is flagged
+ * `manual`. Times are stored exactly as entered (no schedule rounding); the
+ * break defaults to the usual auto-break unless the admin sets one.
+ */
+export async function createAdminShift(input: {
+  workerId: string;
+  workerUid: string;
+  workerName: string;
+  siteId: string;
+  siteName: string;
+  startedAt: number;
+  endedAt: number;
+  breakMinutes?: number | null;
+  by: string;
+}): Promise<string> {
+  const t = now();
+  const durationMinutes = Math.max(0, Math.round((input.endedAt - input.startedAt) / 60000));
+  const breakMinutes =
+    input.breakMinutes != null ? input.breakMinutes : autoBreakMinutes(durationMinutes);
+  const history: HistoryEntry[] = [
+    { at: t, by: input.by, action: "Added by admin (worker forgot to clock in)", to: "pending" },
+  ];
+  const ref = await adminDb.collection(COL.shifts).add({
+    workerId: input.workerId,
+    workerUid: input.workerUid,
+    workerName: input.workerName,
+    siteId: input.siteId,
+    siteName: input.siteName,
+    status: "completed",
+    startedAt: input.startedAt,
+    startLocation: null,
+    startPhotoUrl: null,
+    startAddress: null,
+    endedAt: input.endedAt,
+    endLocation: null,
+    endPhotoUrl: null,
+    endAddress: null,
+    track: [],
+    durationMinutes,
+    breakMinutes,
+    payStart: null,
+    payEnd: null,
+    underworked: false,
+    manual: true,
+    approvalStatus: "pending",
+    history,
+    createdAt: t,
+    updatedAt: t,
+  });
+  return ref.id;
+}

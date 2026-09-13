@@ -54,6 +54,7 @@ export default function ApprovalsPage() {
   const [period, setPeriod] = useState<string>(() => fortnightStartKey(auDateKey(Date.now())));
   const [siteId, setSiteId] = useState<string>(SITE_ALL);
   const [workerName, setWorkerName] = useState<string>(ALL);
+  const [addShift, setAddShift] = useState(false);
 
   const { data: sites } = useLiveCollection<Site>("sites", []);
   const { data: workers } = useLiveCollection<Worker>("workers", []);
@@ -117,10 +118,19 @@ export default function ApprovalsPage() {
             {workerNames.map((w) => (<option key={w} value={w}>{w}</option>))}
           </select>
         </div>
-        <button className="btn-primary ml-auto self-end" onClick={() => window.print()}>
-          Export PDF
-        </button>
+        <div className="ml-auto flex gap-2 self-end">
+          {tab === "shifts" && (
+            <button className="btn-primary" onClick={() => setAddShift(true)}>
+              + Add shift
+            </button>
+          )}
+          <button className="btn-outline" onClick={() => window.print()}>
+            Export PDF
+          </button>
+        </div>
       </div>
+
+      {addShift && <AddShiftModal onClose={() => setAddShift(false)} />}
 
       <div className="flex gap-1.5 mb-5 overflow-x-auto pb-1 no-print">
         {STATUS_FILTERS.map((f) => (
@@ -413,7 +423,14 @@ function ShiftList({ filter, period, siteId, sites, workerName, subtitle }: List
                 {s.endedAt ? ` → ${formatAuDateTime(s.endedAt)}` : ""}
               </div>
             </div>
-            <StatusPill status={s.approvalStatus} />
+            <div className="flex flex-col items-end gap-1">
+              <StatusPill status={s.approvalStatus} />
+              {s.manual && (
+                <span className="chip bg-white border border-[var(--color-line)] text-[var(--color-ink-soft)] text-[10px]">
+                  manual
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-3 mt-3 text-sm flex-wrap">
@@ -540,6 +557,130 @@ export function EditShift({ shift, onClose }: { shift: Shift; onClose: () => voi
         </div>
         <label className="label">Note (optional)</label>
         <input className="input" placeholder="Reason for edit" value={note} onChange={(e) => setNote(e.target.value)} />
+      </div>
+    </Modal>
+  );
+}
+
+/* --------------------- admin: add a forgotten clock-in ------------------- */
+
+function AddShiftModal({ onClose }: { onClose: () => void }) {
+  const toast = useToast();
+  const { data: sites } = useLiveCollection<Site>("sites", []);
+  const { data: workers } = useLiveCollection<Worker>("workers", []);
+  const workerList = useMemo(
+    () => workers.filter((w) => w.active !== false && w.uid).sort((a, b) => a.name.localeCompare(b.name)),
+    [workers]
+  );
+  const siteList = useMemo(
+    () => sites.filter((s) => s.active !== false).sort((a, b) => a.name.localeCompare(b.name)),
+    [sites]
+  );
+  const [workerId, setWorkerId] = useState("");
+  const [siteId, setSiteId] = useState("");
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [start, setStart] = useState("07:00");
+  const [end, setEnd] = useState("15:30");
+  const [brk, setBrk] = useState("30");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  function epoch(dateStr: string, hhmm: string, plusDay = 0): number {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const [h, mi] = hhmm.split(":").map(Number);
+    return new Date(y, m - 1, d + plusDay, h, mi, 0, 0).getTime();
+  }
+
+  async function save() {
+    setErr("");
+    const w = workerList.find((x) => x.id === workerId);
+    const site = siteList.find((x) => x.id === siteId);
+    if (!w) return setErr("Choose a worker.");
+    if (!site) return setErr("Choose a site.");
+    if (!date || !start || !end) return setErr("Date, start and end are required.");
+    const startedAt = epoch(date, start);
+    let endedAt = epoch(date, end);
+    if (endedAt <= startedAt) endedAt = epoch(date, end, 1); // overnight
+    setSaving(true);
+    const res = await fetch("/api/admin/shifts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        workerId: w.id,
+        workerUid: w.uid,
+        workerName: w.name,
+        siteId: site.id,
+        siteName: site.name,
+        startedAt,
+        endedAt,
+        breakMinutes: Number(brk) || 0,
+      }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      toast.success("Shift added", w.name);
+      onClose();
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setErr(d.error || "Could not add shift");
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Add shift (forgot to clock in)"
+      footer={
+        <>
+          <button className="btn-outline" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={save} disabled={saving}>
+            {saving ? <Spinner /> : "Add shift"}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <div>
+          <label className="label">Worker</label>
+          <select className="input" value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
+            <option value="">Choose a worker…</option>
+            {workerList.map((w) => (
+              <option key={w.id} value={w.id}>{w.name}{w.jobTitle ? ` — ${w.jobTitle}` : ""}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Site</label>
+          <select className="input" value={siteId} onChange={(e) => setSiteId(e.target.value)}>
+            <option value="">Choose a site…</option>
+            {siteList.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Date</label>
+          <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <label className="label">Clock-in</label>
+            <input type="time" className="input" value={start} onChange={(e) => setStart(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Clock-out</label>
+            <input type="time" className="input" value={end} onChange={(e) => setEnd(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Break (min)</label>
+            <input type="number" min={0} step={5} className="input" value={brk} onChange={(e) => setBrk(e.target.value)} />
+          </div>
+        </div>
+        <p className="text-xs text-[var(--color-muted)]">
+          No GPS or photo is recorded for a manual shift. It is added as pending for approval.
+        </p>
+        {err && <p className="text-sm text-[var(--color-danger)]">{err}</p>}
       </div>
     </Modal>
   );

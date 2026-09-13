@@ -118,6 +118,10 @@ export interface Shift {
   /** Manual reconciliation link to a submitted timesheet (set by admin). */
   linkedTimesheetId?: string;
 
+  /** True when an admin entered this shift by hand (e.g. the worker forgot to
+   *  clock in) — there is no GPS track or photo for it. */
+  manual?: boolean;
+
   // Approval workflow (mirrors timesheet workflow).
   approvalStatus: ApprovalStatus;
   history: HistoryEntry[];

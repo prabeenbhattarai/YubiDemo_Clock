@@ -91,7 +91,7 @@ body {
   .btn-outline {
     @apply inline-flex items-center justify-center gap-2 rounded-xl font-semibold
            transition active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none
-           px-4 py-3 text-sm;
+           px-4 py-2 text-sm;
   }
   .btn-primary {
     @apply bg-brand-600 text-white hover:bg-brand-700;

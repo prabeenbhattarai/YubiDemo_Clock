@@ -76,6 +76,34 @@ export interface Worker {
   updatedAt?: number;
 }
 
+/** One line of a finalized pay document (a snapshot — no live links). */
+export interface PayDocRow {
+  name: string;
+  hours: number;
+  rate: number;
+  payment: string;
+}
+
+/**
+ * A finalized pay run, archived under Documents → [site] → timesheet. It is a
+ * read-only snapshot of the pay table at the moment Finalize was clicked.
+ */
+export interface PayDocument {
+  id: string;
+  type: "timesheet_pay";
+  siteId: string;
+  siteName: string;
+  periodStart: string;
+  periodLabel: string;
+  rows: PayDocRow[];
+  totalHours: number;
+  totalPay: number;
+  finalizedBy: string;
+  finalizedAt: number;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export type ShiftStatus = "active" | "completed";
 
 /** A GPS reading captured with quality metadata for anti-spoofing checks. */

@@ -12,6 +12,7 @@ export const COL = {
   timesheetDrafts: "timesheetDrafts",
   otps: "otps",
   notifications: "notifications",
+  documents: "documents",
 } as const;
 
 export function now() {

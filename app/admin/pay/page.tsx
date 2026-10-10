@@ -1,28 +1,24 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { CSSProperties } from "react";
 import { useLiveCollection } from "@/lib/live";
-import type { Timesheet, Worker } from "@/lib/types";
+import type { Site, Timesheet, Worker } from "@/lib/types";
 import { auDateKey, timesheetWorkedMinutes } from "@/lib/reconcile";
 import { listFortnights, isWithinFortnight, fortnightStartKey, fortnightLabel } from "@/lib/fortnight";
+import { SITE_ALL, belongsToSite } from "@/lib/site-filter";
 import { Spinner, EmptyState } from "@/components/ui";
-import { PrintWatermark, PrintDisclaimer } from "@/components/print-extras";
+import { useToast } from "@/components/toast";
 import { IconWallet, IconTrash } from "@/components/icons";
+import {
+  type PayRow,
+  money,
+  round2,
+  payTotals,
+  downloadPayXlsx,
+  PayPrintArea,
+} from "@/components/pay-doc";
 
 const ALL = "all";
-
-/** One editable line in the pay run. */
-interface PayRow {
-  key: string;
-  name: string;
-  hours: number;
-  rate: number;
-  payment: string;
-}
-
-const money = (n: number) => `$${(Number.isFinite(n) ? n : 0).toFixed(2)}`;
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** A readable one-line payment detail from a worker's saved pay info. */
 function formatPayment(w?: Worker): string {
@@ -42,14 +38,18 @@ function formatPayment(w?: Worker): string {
 export default function PayPage() {
   const { data: timesheets, loading: lt } = useLiveCollection<Timesheet>("timesheets", []);
   const { data: workers, loading: lw } = useLiveCollection<Worker>("workers", []);
+  const { data: sites, loading: lsite } = useLiveCollection<Site>("sites", []);
   const periods = useMemo(() => listFortnights(), []);
   const [period, setPeriod] = useState<string>(() => fortnightStartKey(auDateKey(Date.now())));
+  const [siteId, setSiteId] = useState<string>(SITE_ALL);
+  const activeSites = useMemo(() => sites.filter((s) => s.active !== false), [sites]);
 
-  // Timesheet minutes per worker for the chosen period.
+  // Timesheet minutes per worker, scoped to the chosen site + period.
   const base = useMemo<PayRow[]>(() => {
     const mins = new Map<string, number>();
     const add = (key: string, m: number) => mins.set(key, (mins.get(key) || 0) + m);
     for (const t of timesheets) {
+      if (!belongsToSite(t, siteId, sites)) continue;
       if (period !== ALL && !isWithinFortnight(auDateKey(t.startAt), period)) continue;
       add(t.workerUid || t.workerName || "—", timesheetWorkedMinutes(t));
     }
@@ -66,30 +66,34 @@ export default function PayPage() {
       });
     }
     return rows.sort((a, b) => a.name.localeCompare(b.name));
-  }, [timesheets, workers, period]);
+  }, [timesheets, workers, sites, siteId, period]);
 
-  const loading = lt || lw;
+  const loading = lt || lw || lsite;
   const periodText = period === ALL ? "All periods" : fortnightLabel(period);
+  const siteName = siteId === SITE_ALL ? "All sites" : sites.find((s) => s.id === siteId)?.name ?? "Site";
+  const canFinalize = siteId !== SITE_ALL && period !== ALL;
 
   return (
     <div>
       <div className="mb-5 no-print">
         <h1 className="text-2xl font-bold">Pay run</h1>
         <p className="text-[var(--color-muted)] text-sm">
-          Hours × pay rate per worker for a working period. Edit any value, then export.
-          Hours come from submitted timesheets. Pay rates come from each
-          worker&apos;s profile on the Workers page.
+          Timesheet hours × pay rate per worker. Pick a site and working period, edit any
+          value, then export — or Finalize to archive a locked copy under Documents.
         </p>
       </div>
 
       <div className="card p-4 mb-4 no-print flex flex-wrap items-end gap-3">
         <div>
+          <label className="label">Site / project</label>
+          <select className="input max-w-xs" value={siteId} onChange={(e) => setSiteId(e.target.value)}>
+            <option value={SITE_ALL}>All sites</option>
+            {activeSites.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+          </select>
+        </div>
+        <div>
           <label className="label">Working period</label>
-          <select
-            className="input max-w-xs"
-            value={period}
-            onChange={(e) => setPeriod(e.target.value)}
-          >
+          <select className="input max-w-xs" value={period} onChange={(e) => setPeriod(e.target.value)}>
             <option value={ALL}>All periods</option>
             {periods.map((p) => (<option key={p.startKey} value={p.startKey}>{p.label}</option>))}
           </select>
@@ -99,14 +103,41 @@ export default function PayPage() {
       {loading ? (
         <div className="py-16 text-center text-[var(--color-muted)]"><Spinner /> Loading…</div>
       ) : (
-        <PayRun key={period} base={base} periodText={periodText} />
+        <PayRun
+          key={`${siteId}|${period}`}
+          base={base}
+          periodText={`${siteName} · ${periodText}`}
+          siteId={siteId}
+          siteName={siteName}
+          periodStart={period}
+          periodLabel={periodText}
+          canFinalize={canFinalize}
+        />
       )}
     </div>
   );
 }
 
-function PayRun({ base, periodText }: { base: PayRow[]; periodText: string }) {
+function PayRun({
+  base,
+  periodText,
+  siteId,
+  siteName,
+  periodStart,
+  periodLabel,
+  canFinalize,
+}: {
+  base: PayRow[];
+  periodText: string;
+  siteId: string;
+  siteName: string;
+  periodStart: string;
+  periodLabel: string;
+  canFinalize: boolean;
+}) {
   const [rows, setRows] = useState<PayRow[]>(base);
+  const [finalizing, setFinalizing] = useState(false);
+  const toast = useToast();
 
   function update(i: number, patch: Partial<PayRow>) {
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -115,48 +146,38 @@ function PayRun({ base, periodText }: { base: PayRow[]; periodText: string }) {
     setRows((prev) => prev.filter((_, idx) => idx !== i));
   }
 
-  const totalHours = round2(rows.reduce((s, r) => s + (Number(r.hours) || 0), 0));
-  const totalPay = round2(rows.reduce((s, r) => s + (Number(r.hours) || 0) * (Number(r.rate) || 0), 0));
+  const { hours: totalHours, pay: totalPay } = payTotals(rows);
 
-  async function exportXlsx() {
-    const mod = await import("xlsx-js-style");
-    const XLSX = (mod as unknown as { default?: typeof mod }).default ?? mod;
-    const b = { style: "thin", color: { rgb: "CBD5E1" } };
-    const borders = { top: b, bottom: b, left: b, right: b };
-    const head = { font: { bold: true, color: { rgb: "1E293B" } }, fill: { fgColor: { rgb: "E5E7EB" } }, border: borders, alignment: { horizontal: "center" } };
-    const cell = { border: borders };
-    const num = { border: borders, alignment: { horizontal: "right" } };
-    const totalStyle = { font: { bold: true }, fill: { fgColor: { rgb: "F1F5F9" } }, border: borders };
-    const totalNum = { ...totalStyle, alignment: { horizontal: "right" } };
-
-    const header = ["Worker", "Hours", "Rate ($/h)", "Pay ($)", "Payment detail"];
-    const aoa: (string | number)[][] = [header];
-    for (const r of rows) {
-      aoa.push([r.name, round2(Number(r.hours) || 0), round2(Number(r.rate) || 0), round2((Number(r.hours) || 0) * (Number(r.rate) || 0)), r.payment]);
+  async function finalize() {
+    setFinalizing(true);
+    const res = await fetch("/api/admin/documents", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        siteId,
+        siteName,
+        periodStart,
+        periodLabel,
+        rows: rows.map((r) => ({
+          name: r.name,
+          hours: Number(r.hours) || 0,
+          rate: Number(r.rate) || 0,
+          payment: r.payment,
+        })),
+      }),
+    });
+    setFinalizing(false);
+    if (res.ok) toast.success("Finalized", "Saved to Documents");
+    else {
+      const d = await res.json().catch(() => ({}));
+      toast.error("Could not finalize", d.error);
     }
-    aoa.push(["Total", round2(totalHours), "", round2(totalPay), ""]);
-
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    const lastRow = aoa.length - 1;
-    for (let rr = 0; rr < aoa.length; rr++) {
-      for (let c = 0; c < header.length; c++) {
-        const ref = XLSX.utils.encode_cell({ r: rr, c });
-        if (!ws[ref]) ws[ref] = { t: "s", v: "" };
-        if (rr === 0) ws[ref].s = head;
-        else if (rr === lastRow) ws[ref].s = c === 1 || c === 3 ? totalNum : totalStyle;
-        else ws[ref].s = c === 1 || c === 2 || c === 3 ? num : cell;
-      }
-    }
-    ws["!cols"] = [{ wch: 26 }, { wch: 9 }, { wch: 11 }, { wch: 12 }, { wch: 40 }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Pay run");
-    XLSX.writeFile(wb, `yubi-pay-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
   if (rows.length === 0) {
     return (
       <div className="card no-print">
-        <EmptyState icon={<IconWallet size={22} />} title="No paid hours in this period" subtitle="Choose another working period." />
+        <EmptyState icon={<IconWallet size={22} />} title="No timesheet hours here" subtitle="Try another site or working period." />
       </div>
     );
   }
@@ -168,10 +189,25 @@ function PayRun({ base, periodText }: { base: PayRow[]; periodText: string }) {
           {rows.length} worker{rows.length === 1 ? "" : "s"} · {totalHours} h · <span className="font-semibold text-brand-700">{money(totalPay)}</span>
         </div>
         <div className="flex gap-2 ml-auto">
-          <button className="btn-outline" onClick={exportXlsx}>Export Excel</button>
-          <button className="btn-primary" onClick={() => window.print()}>Download PDF</button>
+          <button
+            className="btn-success"
+            onClick={finalize}
+            disabled={!canFinalize || finalizing}
+            title={canFinalize ? "Save a locked copy under Documents" : "Choose a specific site and working period to finalize"}
+          >
+            {finalizing ? <Spinner /> : "Finalize"}
+          </button>
+          <button className="btn-outline" onClick={() => downloadPayXlsx(rows, `yubi-pay-${new Date().toISOString().slice(0, 10)}.xlsx`)}>
+            Export Excel
+          </button>
+          <button className="btn-outline" onClick={() => window.print()}>Download PDF</button>
         </div>
       </div>
+      {!canFinalize && (
+        <p className="text-xs text-[var(--color-muted)] mb-3 no-print">
+          Pick a specific site and working period to enable Finalize.
+        </p>
+      )}
 
       {/* Editable table (screen only) */}
       <div className="card overflow-x-auto no-print">
@@ -228,49 +264,7 @@ function PayRun({ base, periodText }: { base: PayRow[]; periodText: string }) {
         </table>
       </div>
 
-      {/* Print / PDF layout */}
-      <div className="print-area hidden print:block">
-        <PrintWatermark />
-        <div style={{ marginBottom: 14 }}>
-          <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Yubi Demolition — Pay run</h2>
-          <p style={{ fontSize: 12, margin: "4px 0 0", color: "#475569" }}>{periodText}</p>
-        </div>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              {["Worker", "Hours", "Rate ($/h)", "Pay ($)", "Payment detail"].map((h) => (
-                <th key={h} style={pHead}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const pay = (Number(r.hours) || 0) * (Number(r.rate) || 0);
-              return (
-                <tr key={r.key} style={{ pageBreakInside: "avoid" }}>
-                  <td style={pCell}>{r.name}</td>
-                  <td style={pNum}>{round2(Number(r.hours) || 0)}</td>
-                  <td style={pNum}>{money(Number(r.rate) || 0)}</td>
-                  <td style={pNum}>{money(pay)}</td>
-                  <td style={pCell}>{r.payment}</td>
-                </tr>
-              );
-            })}
-            <tr>
-              <td style={{ ...pCell, fontWeight: 700 }}>Total</td>
-              <td style={{ ...pNum, fontWeight: 700 }}>{totalHours}</td>
-              <td style={pCell}></td>
-              <td style={{ ...pNum, fontWeight: 700 }}>{money(totalPay)}</td>
-              <td style={pCell}></td>
-            </tr>
-          </tbody>
-        </table>
-        <PrintDisclaimer />
-      </div>
+      <PayPrintArea rows={rows} subtitle={periodText} />
     </>
   );
 }
-
-const pCell: CSSProperties = { border: "1px solid #cbd5e1", padding: "6px 8px", textAlign: "left", fontSize: 12, verticalAlign: "top" };
-const pNum: CSSProperties = { ...pCell, textAlign: "right", whiteSpace: "nowrap" };
-const pHead: CSSProperties = { ...pCell, background: "#e5e7eb", fontWeight: 700, textAlign: "center" };

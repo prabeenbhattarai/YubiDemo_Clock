@@ -3,8 +3,7 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useLiveCollection } from "@/lib/live";
-import type { Shift, Timesheet, Worker } from "@/lib/types";
-import { shiftWorkedMinutes } from "@/lib/time";
+import type { Timesheet, Worker } from "@/lib/types";
 import { auDateKey, timesheetWorkedMinutes } from "@/lib/reconcile";
 import { listFortnights, isWithinFortnight, fortnightStartKey, fortnightLabel } from "@/lib/fortnight";
 import { Spinner, EmptyState } from "@/components/ui";
@@ -41,21 +40,15 @@ function formatPayment(w?: Worker): string {
 }
 
 export default function PayPage() {
-  const { data: shifts, loading: ls } = useLiveCollection<Shift>("shifts", []);
   const { data: timesheets, loading: lt } = useLiveCollection<Timesheet>("timesheets", []);
   const { data: workers, loading: lw } = useLiveCollection<Worker>("workers", []);
   const periods = useMemo(() => listFortnights(), []);
   const [period, setPeriod] = useState<string>(() => fortnightStartKey(auDateKey(Date.now())));
 
-  // Combined (timesheet + clock-in) minutes per worker for the chosen period.
+  // Timesheet minutes per worker for the chosen period.
   const base = useMemo<PayRow[]>(() => {
     const mins = new Map<string, number>();
     const add = (key: string, m: number) => mins.set(key, (mins.get(key) || 0) + m);
-    for (const s of shifts) {
-      if (s.status !== "completed") continue;
-      if (period !== ALL && !isWithinFortnight(auDateKey(s.startedAt), period)) continue;
-      add(s.workerUid || s.workerName || "—", shiftWorkedMinutes(s));
-    }
     for (const t of timesheets) {
       if (period !== ALL && !isWithinFortnight(auDateKey(t.startAt), period)) continue;
       add(t.workerUid || t.workerName || "—", timesheetWorkedMinutes(t));
@@ -73,9 +66,9 @@ export default function PayPage() {
       });
     }
     return rows.sort((a, b) => a.name.localeCompare(b.name));
-  }, [shifts, timesheets, workers, period]);
+  }, [timesheets, workers, period]);
 
-  const loading = ls || lt || lw;
+  const loading = lt || lw;
   const periodText = period === ALL ? "All periods" : fortnightLabel(period);
 
   return (
@@ -84,7 +77,7 @@ export default function PayPage() {
         <h1 className="text-2xl font-bold">Pay run</h1>
         <p className="text-[var(--color-muted)] text-sm">
           Hours × pay rate per worker for a working period. Edit any value, then export.
-          Hours combine submitted timesheets and clock-in shifts. Pay rates come from each
+          Hours come from submitted timesheets. Pay rates come from each
           worker&apos;s profile on the Workers page.
         </p>
       </div>

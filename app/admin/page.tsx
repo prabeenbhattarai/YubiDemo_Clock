@@ -16,6 +16,7 @@ import { useNow } from "@/components/live-clock";
 import { EmptyState, StatusPill } from "@/components/ui";
 import Modal from "@/components/modal";
 import ShiftMap from "@/components/shift-map";
+import PeriodPicker from "@/components/period-picker";
 import {
   IconCheck,
   IconWarning,
@@ -197,17 +198,7 @@ export default function AdminDashboard() {
 
   const periodText = period === ALL ? "All time" : fortnightLabel(period);
   const { dateLong } = auParts(Date.now());
-
-  const periodSelect = (
-    <select
-      className="input max-w-[220px] py-2"
-      value={period}
-      onChange={(e) => setPeriod(e.target.value)}
-    >
-      <option value={ALL}>All time</option>
-      {periods.map((p) => (<option key={p.startKey} value={p.startKey}>{p.label}</option>))}
-    </select>
-  );
+  const currentKey = fortnightStartKey(auDayKey(Date.now()));
 
   return (
     <div>
@@ -217,8 +208,8 @@ export default function AdminDashboard() {
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-sm text-[var(--color-muted)] mt-0.5">{dateLong}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {periodSelect}
+        <div className="flex items-center gap-2">
+          <PeriodPicker periods={periods} value={period} currentKey={currentKey} onChange={setPeriod} />
           <Link href="/admin/reports" className="btn-outline">Reports</Link>
           <Link href="/admin/workers" className="btn-primary">+ Add worker</Link>
         </div>

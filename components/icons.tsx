@@ -262,3 +262,12 @@ export const IconGlobe = (p: IconProps) => (
     <path d="M3 12h18M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18" />
   </Base>
 );
+
+export const IconWallet = (p: IconProps) => (
+  <Base {...p}>
+    <rect x="3" y="6" width="18" height="13" rx="2.5" />
+    <path d="M3 10h18" />
+    <circle cx="16.5" cy="13.5" r="1.1" fill="currentColor" stroke="none" />
+    <path d="M6 6V5a2 2 0 0 1 2.4-1.96l9 2A2 2 0 0 1 19 7" />
+  </Base>
+);

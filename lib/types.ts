@@ -59,6 +59,19 @@ export interface Worker {
   /** Google account profile image, captured at sign-in. */
   photoURL?: string;
   active: boolean;
+
+  // --- Pay details (admin-entered) ---
+  /** Hourly pay rate in dollars. */
+  payRate?: number;
+  /** How the worker is paid. */
+  payType?: "payid" | "bank";
+  /** PayID (email / phone / ABN), when payType is "payid". */
+  payId?: string;
+  /** Bank BSB, account number and account name, when payType is "bank". */
+  bsb?: string;
+  accountNumber?: string;
+  accountName?: string;
+
   createdAt?: number;
   updatedAt?: number;
 }

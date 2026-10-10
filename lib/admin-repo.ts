@@ -81,6 +81,27 @@ export interface WorkerInput {
   email: string;
   assignedSiteIds: string[];
   active?: boolean;
+  // Pay details (all optional).
+  payRate?: number | null;
+  payType?: "payid" | "bank" | null;
+  payId?: string | null;
+  bsb?: string | null;
+  accountNumber?: string | null;
+  accountName?: string | null;
+}
+
+/** Normalise the pay-detail fields into a Firestore-safe object. */
+function payFields(input: WorkerInput) {
+  const type = input.payType === "payid" || input.payType === "bank" ? input.payType : null;
+  const rate = Number(input.payRate);
+  return {
+    payRate: Number.isFinite(rate) && rate >= 0 ? rate : null,
+    payType: type,
+    payId: type === "payid" ? input.payId?.trim() || null : null,
+    bsb: type === "bank" ? input.bsb?.trim() || null : null,
+    accountNumber: type === "bank" ? input.accountNumber?.trim() || null : null,
+    accountName: type === "bank" ? input.accountName?.trim() || null : null,
+  };
 }
 
 export async function createWorker(input: WorkerInput): Promise<string> {
@@ -98,6 +119,7 @@ export async function createWorker(input: WorkerInput): Promise<string> {
     email,
     assignedSiteIds: input.assignedSiteIds ?? [],
     active: input.active !== false,
+    ...payFields(input),
     createdAt: now(),
     updatedAt: now(),
   });
@@ -112,6 +134,7 @@ export async function updateWorker(id: string, input: WorkerInput) {
       email: input.email.trim().toLowerCase(),
       assignedSiteIds: input.assignedSiteIds ?? [],
       active: input.active !== false,
+      ...payFields(input),
       updatedAt: now(),
     },
     { merge: true }

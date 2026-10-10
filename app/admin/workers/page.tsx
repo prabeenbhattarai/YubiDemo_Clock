@@ -131,6 +131,12 @@ function WorkerForm({
   const [email, setEmail] = useState(worker?.email ?? "");
   const [assigned, setAssigned] = useState<string[]>(worker?.assignedSiteIds ?? []);
   const [active, setActive] = useState(worker?.active ?? true);
+  const [payRate, setPayRate] = useState(worker?.payRate != null ? String(worker.payRate) : "");
+  const [payType, setPayType] = useState<"" | "payid" | "bank">(worker?.payType ?? "");
+  const [payId, setPayId] = useState(worker?.payId ?? "");
+  const [bsb, setBsb] = useState(worker?.bsb ?? "");
+  const [accountNumber, setAccountNumber] = useState(worker?.accountNumber ?? "");
+  const [accountName, setAccountName] = useState(worker?.accountName ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const toast = useToast();
@@ -147,7 +153,19 @@ function WorkerForm({
     if (!name.trim()) return setError("Name is required.");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError("Enter a valid email.");
     setSaving(true);
-    const body = { name, jobTitle, email, assignedSiteIds: assigned, active };
+    const body = {
+      name,
+      jobTitle,
+      email,
+      assignedSiteIds: assigned,
+      active,
+      payRate: payRate.trim() === "" ? null : Number(payRate),
+      payType: payType || null,
+      payId,
+      bsb,
+      accountNumber,
+      accountName,
+    };
     const res = await fetch(
       isEdit ? `/api/admin/workers/${worker!.id}` : "/api/admin/workers",
       {
@@ -265,6 +283,75 @@ function WorkerForm({
             </div>
           )}
         </Field>
+
+        <div className="border-t border-[var(--color-line)] pt-4 space-y-4">
+          <h3 className="text-sm font-semibold">Pay details</h3>
+          <Field label="Pay rate" hint="Hourly rate in dollars. Used on the Pay run.">
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)]">$</span>
+              <input
+                className="input pl-7"
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder="0.00"
+                value={payRate}
+                onChange={(e) => setPayRate(e.target.value)}
+              />
+            </div>
+          </Field>
+          <Field label="Payment method">
+            <select
+              className="input"
+              value={payType}
+              onChange={(e) => setPayType(e.target.value as "" | "payid" | "bank")}
+            >
+              <option value="">None</option>
+              <option value="payid">PayID</option>
+              <option value="bank">Bank account</option>
+            </select>
+          </Field>
+          {payType === "payid" && (
+            <Field label="PayID" hint="Email, phone or ABN linked to the account.">
+              <input
+                className="input"
+                placeholder="jane@company.com / 0400 000 000"
+                value={payId}
+                onChange={(e) => setPayId(e.target.value)}
+              />
+            </Field>
+          )}
+          {payType === "bank" && (
+            <>
+              <Field label="Account name">
+                <input
+                  className="input"
+                  placeholder="Jane Smith"
+                  value={accountName}
+                  onChange={(e) => setAccountName(e.target.value)}
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="BSB">
+                  <input
+                    className="input"
+                    placeholder="000-000"
+                    value={bsb}
+                    onChange={(e) => setBsb(e.target.value)}
+                  />
+                </Field>
+                <Field label="Account number">
+                  <input
+                    className="input"
+                    placeholder="12345678"
+                    value={accountNumber}
+                    onChange={(e) => setAccountNumber(e.target.value)}
+                  />
+                </Field>
+              </div>
+            </>
+          )}
+        </div>
 
         <label className="flex items-center justify-between py-2 border-t border-[var(--color-line)]">
           <span className="text-sm font-medium">Active</span>

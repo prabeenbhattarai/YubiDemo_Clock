@@ -66,6 +66,7 @@ export default function AdminShell({
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
     ensureFirebaseSignedIn();
@@ -75,6 +76,13 @@ export default function AdminShell({
     } catch {
       /* ignore */
     }
+  }, []);
+
+  // The top controls only grow a navbar background once the page is scrolled.
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 4);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   function toggleCollapsed() {
@@ -140,15 +148,19 @@ export default function AdminShell({
         )}
 
         <div className="flex-1 min-w-0 flex flex-col">
-          {/* Desktop top bar */}
-          <header className="hidden md:flex items-center h-16 px-8 border-b border-[var(--color-line)] bg-white/70 backdrop-blur sticky top-0 z-20">
-            <div className="ml-auto flex items-center gap-1">
+          {/* Desktop controls — transparent at rest, a navbar once scrolled. */}
+          <div
+            className={`hidden md:flex sticky top-0 z-20 h-12 items-center justify-end px-8 transition-colors ${
+              scrolled ? "bg-white/80 backdrop-blur border-b border-[var(--color-line)] shadow-sm" : ""
+            }`}
+          >
+            <div className="flex items-center gap-1">
               <GlobalSearch />
               <NotificationsBell />
             </div>
-          </header>
+          </div>
 
-          <main className="w-full p-4 md:px-8 md:py-7 pb-16">{children}</main>
+          <main className="w-full p-4 md:px-8 md:pt-2 md:pb-16">{children}</main>
         </div>
       </div>
     </NotificationsProvider>

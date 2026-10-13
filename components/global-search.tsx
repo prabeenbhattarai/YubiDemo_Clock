@@ -71,14 +71,14 @@ export default function GlobalSearch() {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[12vh]" onMouseDown={() => setOpen(false)}>
-          <div className="absolute inset-0 bg-black/40" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onMouseDown={() => setOpen(false)}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
           <div
-            className="relative w-full max-w-xl bg-white rounded-2xl border border-[var(--color-line)] shadow-2xl overflow-hidden"
+            className="relative w-full max-w-2xl bg-white rounded-2xl border border-[var(--color-line)] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center gap-3 px-4 h-14 border-b border-[var(--color-line)]">
-              <IconSearch size={20} className="text-[var(--color-muted)]" />
+            <div className="flex items-center gap-3 px-5 h-16 border-b border-[var(--color-line)]">
+              <IconSearch size={22} className="text-[var(--color-muted)]" />
               <input
                 ref={inputRef}
                 value={q}
@@ -92,11 +92,11 @@ export default function GlobalSearch() {
               <kbd className="text-[11px] text-[var(--color-muted)] border border-[var(--color-line)] rounded px-1.5 py-0.5">Esc</kbd>
             </div>
 
-            <div className="max-h-[60vh] overflow-y-auto">
+            <div className="flex-1 overflow-y-auto min-h-[320px]">
               {!term ? (
-                <div className="px-4 py-8 text-center text-sm text-[var(--color-muted)]">Type to search workers and sites.</div>
+                <div className="h-full grid place-items-center px-4 py-10 text-center text-sm text-[var(--color-muted)]">Start typing to search workers and sites…</div>
               ) : !hasHits ? (
-                <div className="px-4 py-8 text-center text-sm text-[var(--color-muted)]">No matches for &ldquo;{q.trim()}&rdquo;</div>
+                <div className="h-full grid place-items-center px-4 py-10 text-center text-sm text-[var(--color-muted)]">No matches for &ldquo;{q.trim()}&rdquo;</div>
               ) : (
                 <div className="py-1">
                   {workerHits.length > 0 && (

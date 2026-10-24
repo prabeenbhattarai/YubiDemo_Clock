@@ -84,32 +84,56 @@ function normalizeTime(raw: string): string {
   return `${String(h).padStart(2, "0")}:${String(mi).padStart(2, "0")}`;
 }
 
-/** Browser-independent time field: a text box that normalises on blur/Enter. */
-function TimeField({
-  value,
-  onChange,
-  className,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  className?: string;
-}) {
+/**
+ * Browser-independent time picker: two dropdowns (hour + minute) so workers
+ * choose from valid options instead of typing. Native <select> renders a proper
+ * chooser on every browser/device — unlike <input type=time>, which some
+ * browsers show as an unusable "--:--" box. Emits "HH:MM" (24h), or "" when the
+ * hour isn't chosen yet.
+ */
+const TIME_SELECT_CLS =
+  "flex-1 min-w-0 rounded-xl border border-[var(--color-line)] bg-white px-2 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100";
+
+function TimePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value || "");
+  const h = match ? match[1].padStart(2, "0") : "";
+  const m = match ? match[2] : "00";
+
+  const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+  let mins = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
+  if (!mins.includes(m)) mins = [...mins, m].sort(); // keep an existing odd minute
+
+  const hourLabel = (hh: string) => {
+    const n = Number(hh);
+    const ap = n < 12 ? "AM" : "PM";
+    const h12 = n % 12 === 0 ? 12 : n % 12;
+    return `${h12} ${ap}`;
+  };
+
   return (
-    <input
-      type="text"
-      inputMode="numeric"
-      autoCapitalize="off"
-      autoCorrect="off"
-      spellCheck={false}
-      placeholder="HH:MM"
-      className={className}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onBlur={(e) => onChange(normalizeTime(e.target.value))}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") onChange(normalizeTime((e.target as HTMLInputElement).value));
-      }}
-    />
+    <div className="flex items-center gap-1">
+      <select
+        className={TIME_SELECT_CLS}
+        value={h}
+        aria-label="Hour"
+        onChange={(e) => onChange(e.target.value === "" ? "" : `${e.target.value}:${m}`)}
+      >
+        <option value="">Hr</option>
+        {hours.map((hh) => (
+          <option key={hh} value={hh}>{hourLabel(hh)}</option>
+        ))}
+      </select>
+      <select
+        className={TIME_SELECT_CLS}
+        value={m}
+        aria-label="Minute"
+        onChange={(e) => onChange(h === "" ? "" : `${h}:${e.target.value}`)}
+      >
+        {mins.map((mm) => (
+          <option key={mm} value={mm}>{mm}</option>
+        ))}
+      </select>
+    </div>
   );
 }
 
@@ -671,11 +695,11 @@ function DayRow({
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_62px] gap-1.5">
         <label className="block min-w-0">
           <span className="block text-[11px] font-medium text-[var(--color-muted)] mb-1">Start</span>
-          <TimeField className={cellInput} value={row.start} onChange={(v) => onChange({ start: v })} />
+          <TimePicker value={row.start} onChange={(v) => onChange({ start: v })} />
         </label>
         <label className="block min-w-0">
           <span className="block text-[11px] font-medium text-[var(--color-muted)] mb-1">End</span>
-          <TimeField className={cellInput} value={row.end} onChange={(v) => onChange({ end: v })} />
+          <TimePicker value={row.end} onChange={(v) => onChange({ end: v })} />
         </label>
         <label className="block min-w-0">
           <span className="block text-[11px] font-medium text-[var(--color-muted)] mb-1">Break</span>

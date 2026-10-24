@@ -22,6 +22,12 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   // Don't advertise the framework/version.
   poweredByHeader: false,
+  // Baked in at build time so pages can show which version is live (handy for
+  // confirming a worker's app actually picked up the latest deploy).
+  env: {
+    NEXT_PUBLIC_BUILD_TIME: new Date().toISOString(),
+    NEXT_PUBLIC_BUILD_REV: (process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 7),
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

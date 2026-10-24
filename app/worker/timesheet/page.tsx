@@ -16,6 +16,7 @@ import PlaceSearch from "@/components/place-search";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/confirm";
 import { IconClipboard, IconMapPin } from "@/components/icons";
+import BuildStamp from "@/components/build-stamp";
 
 /** Short label for a fortnight day key, e.g. "Mon, 18 Aug". */
 function dayLabel(key: string): string {
@@ -174,6 +175,7 @@ export default function TimesheetPage() {
         {!open && !loading && sorted.length === 0 && (
           <EmptyState icon={<IconClipboard size={22} />} title="No timesheets yet" subtitle="Tap “New” to log hours." />
         )}
+        <BuildStamp />
       </main>
     </div>
   );

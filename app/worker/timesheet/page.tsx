@@ -44,6 +44,74 @@ function parseTime(v: string): number | null {
   return h * 60 + min;
 }
 
+/**
+ * Normalise flexible time text to "HH:MM" (24h). Accepts "9", "9:5", "930",
+ * "0930", "9.30", "9 30", "5pm", "9:00am"… Returns the raw text unchanged when
+ * it can't be understood (so the field stays editable). This keeps time entry
+ * working on every browser, instead of relying on the native <input type=time>
+ * widget which some browsers/devices render as an unusable text box.
+ */
+function normalizeTime(raw: string): string {
+  let s = raw.trim().toLowerCase();
+  if (!s) return "";
+  let ampm = "";
+  if (s.includes("p")) ampm = "pm";
+  else if (s.includes("a")) ampm = "am";
+  s = s.replace(/[^\d:]/g, ""); // keep digits + colon
+  if (!s || s === ":") return raw;
+
+  let h: number;
+  let mi: number;
+  if (s.includes(":")) {
+    const [hh, mm = ""] = s.split(":");
+    h = parseInt(hh || "0", 10);
+    mi = parseInt((mm + "00").slice(0, 2), 10);
+  } else if (s.length <= 2) {
+    h = parseInt(s, 10);
+    mi = 0;
+  } else if (s.length === 3) {
+    h = parseInt(s.slice(0, 1), 10);
+    mi = parseInt(s.slice(1), 10);
+  } else {
+    h = parseInt(s.slice(0, 2), 10);
+    mi = parseInt(s.slice(2, 4), 10);
+  }
+  if (Number.isNaN(h) || Number.isNaN(mi)) return raw;
+  if (ampm === "pm" && h < 12) h += 12;
+  if (ampm === "am" && h === 12) h = 0;
+  if (h > 23 || mi > 59) return raw;
+  return `${String(h).padStart(2, "0")}:${String(mi).padStart(2, "0")}`;
+}
+
+/** Browser-independent time field: a text box that normalises on blur/Enter. */
+function TimeField({
+  value,
+  onChange,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  className?: string;
+}) {
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      autoCapitalize="off"
+      autoCorrect="off"
+      spellCheck={false}
+      placeholder="HH:MM"
+      className={className}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={(e) => onChange(normalizeTime(e.target.value))}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") onChange(normalizeTime((e.target as HTMLInputElement).value));
+      }}
+    />
+  );
+}
+
 /** Decimal hours from minutes, 2dp (150 -> 2.5). */
 function decimalHours(mins: number): number {
   return Math.round((mins / 60) * 100) / 100;
@@ -365,6 +433,12 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
     const toSubmit = rows.filter((r) => r.start && r.end);
     if (toSubmit.length === 0) { setError("Enter start and end times for at least one day."); return; }
 
+    const badTimes = toSubmit.filter((r) => parseTime(normalizeTime(r.start)) == null || parseTime(normalizeTime(r.end)) == null);
+    if (badTimes.length > 0) {
+      setError(`Check the start/end time for: ${badTimes.map((r) => dayLabel(r.dayKey)).join(", ")}. Use 24-hour HH:MM, e.g. 07:30.`);
+      return;
+    }
+
     if (requireDayLoc) {
       const missing = toSubmit.filter((r) => !r.loc.trim());
       if (missing.length > 0) {
@@ -386,8 +460,8 @@ function FortnightGrid({ onDone }: { onDone: () => void }) {
     const failures: string[] = [];
     for (let i = 0; i < toSubmit.length; i++) {
       const r = toSubmit[i];
-      const s = parseTime(r.start)!;
-      const e = parseTime(r.end)!;
+      const s = parseTime(normalizeTime(r.start))!;
+      const e = parseTime(normalizeTime(r.end))!;
       const startAt = atTime(r.dayKey, s);
       const endAt = e > s ? atTime(r.dayKey, e) : atTime(addDaysKey(r.dayKey, 1), e);
       // Day location wins; fall back to the site centre for a fixed site.
@@ -595,11 +669,11 @@ function DayRow({
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_62px] gap-1.5">
         <label className="block min-w-0">
           <span className="block text-[11px] font-medium text-[var(--color-muted)] mb-1">Start</span>
-          <input type="time" className={`${cellInput} ts-time`} value={row.start} onChange={(e) => onChange({ start: e.target.value })} />
+          <TimeField className={cellInput} value={row.start} onChange={(v) => onChange({ start: v })} />
         </label>
         <label className="block min-w-0">
           <span className="block text-[11px] font-medium text-[var(--color-muted)] mb-1">End</span>
-          <input type="time" className={`${cellInput} ts-time`} value={row.end} onChange={(e) => onChange({ end: e.target.value })} />
+          <TimeField className={cellInput} value={row.end} onChange={(v) => onChange({ end: v })} />
         </label>
         <label className="block min-w-0">
           <span className="block text-[11px] font-medium text-[var(--color-muted)] mb-1">Break</span>
